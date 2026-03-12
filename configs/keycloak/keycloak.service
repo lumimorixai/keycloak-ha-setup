@@ -1,0 +1,59 @@
+# ==============================================================================
+# keycloak.service – systemd Unit für Keycloak HA (Quarkus-Distribution)
+#
+# Deployed via 02-setup-keycloak.sh → /etc/systemd/system/keycloak.service
+# Kein Template: alle dynamischen Werte kommen aus /etc/keycloak/env.
+#
+# Voraussetzung: kc.sh build wurde ausgeführt (02-setup-keycloak.sh erledigt das).
+# Keycloak startet NICHT ohne vorherigen Build, wenn --optimized gesetzt ist.
+# ==============================================================================
+
+[Unit]
+Description=Keycloak Identity and Access Management
+Documentation=https://www.keycloak.org/documentation
+After=network-online.target
+Wants=network-online.target
+# Schutz vor Restart-Schleife: max. 3 Starts in 120 Sekunden
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=keycloak
+Group=keycloak
+WorkingDirectory=/opt/keycloak
+
+# Statische Umgebungsvariable
+Environment=KC_HOME=/opt/keycloak
+
+# Dynamische Werte werden von 02-setup-keycloak.sh in diese Datei geschrieben:
+#   JAVA_HOME             – Pfad zur Temurin JDK-Installation
+#   JAVA_OPTS_APPEND      – JVM-Heap + JGroups TCP Bind-Address/Port
+#   KEYCLOAK_ADMIN        – Initialer Admin-Username (nur beim ersten Start)
+#   KEYCLOAK_ADMIN_PASSWORD – Initialer Admin-Passwort (nur beim ersten Start)
+EnvironmentFile=/etc/keycloak/env
+
+# --optimized: Keycloak startet aus dem vorgebauten Quarkus-Artefakt.
+# Ohne vorherigen `kc.sh build` startet der Service NICHT.
+ExecStart=/opt/keycloak/bin/kc.sh start --optimized
+
+# Graceful Shutdown: SIGTERM → Keycloak beendet aktive Sessions sauber.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+Restart=on-failure
+RestartSec=15
+TimeoutStartSec=120
+
+# --- Systemhärtung -----------------------------------------------------------
+NoNewPrivileges=true
+# Privates /tmp, isoliert von anderen Prozessen
+PrivateTmp=true
+# Filesystem read-only außer explizit freigegebenen Pfaden
+ProtectSystem=strict
+ProtectHome=true
+# Keycloak schreibt in data/ (Infinispan-Locks, embedded caches bei Bedarf)
+ReadWritePaths=/opt/keycloak/data
+
+[Install]
+WantedBy=multi-user.target

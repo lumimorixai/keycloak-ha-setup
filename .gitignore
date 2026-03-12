@@ -1,0 +1,17 @@
+# Secrets – NIEMALS committen
+.env
+
+# Backup-Dateien (erzeugt von deploy_config / backup_file in 00-common.sh)
+*.bak
+*.bak.*
+
+# Editor-Artefakte
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS-Artefakte
+.DS_Store
+Thumbs.db

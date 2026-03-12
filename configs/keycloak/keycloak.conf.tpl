@@ -1,0 +1,51 @@
+# ==============================================================================
+# keycloak.conf – Keycloak Server-Konfiguration (Template)
+#
+# Deployed via 02-setup-keycloak.sh → /opt/keycloak/conf/keycloak.conf
+# Nach jeder Änderung MUSS kc.sh build ausgeführt werden (geschieht im Skript).
+#
+# Variablen (aus .env):
+#   DB_HOST, DB_NAME, DB_USER, DB_PASSWORD
+#   KC_HTTP_PORT, KC_DOMAIN, KC_JGROUPS_PORT
+# ==============================================================================
+
+# --- Datenbank ----------------------------------------------------------------
+# Keycloak baut die JDBC-URL aus Host + Datenbankname zusammen.
+db=postgres
+db-url-host=${DB_HOST}
+db-url-database=${DB_NAME}
+db-username=${DB_USER}
+db-password=${DB_PASSWORD}
+db-pool-initial-size=5
+db-pool-min-size=5
+db-pool-max-size=20
+
+# --- HTTP (TLS wird am Nginx-Reverse-Proxy terminiert) -----------------------
+# Keycloak hört nur auf HTTP; HTTPS endet am lb01-Nginx.
+http-enabled=true
+http-port=${KC_HTTP_PORT}
+
+# --- Hostname / Reverse Proxy ------------------------------------------------
+# Vollständige URL nötig (KC 24+), damit generierte Redirect-URIs https:// nutzen.
+# proxy-headers=xforwarded: KC vertraut X-Forwarded-Proto/Host vom Nginx.
+hostname=https://${KC_DOMAIN}
+hostname-strict=true
+proxy-headers=xforwarded
+
+# --- Clustering (JDBC_PING2 für Node-Discovery via PostgreSQL) ---------------
+# JDBC_PING2 nutzt die PostgreSQL-DB NUR für Node-Discovery.
+# Der eigentliche Cluster-Datentransfer läuft über JGroups TCP (Port ${KC_JGROUPS_PORT}).
+# Der JGroups TCP Bind-Address wird per -Djgroups.bind.address in JAVA_OPTS_APPEND gesetzt
+# (in /etc/keycloak/env, geschrieben von 02-setup-keycloak.sh).
+cache=ispn
+cache-stack=jdbc-ping
+
+# --- Health & Metrics --------------------------------------------------------
+# /health/ready wird von 99-healthcheck.sh und Nginx-Upstream-Check genutzt.
+health-enabled=true
+metrics-enabled=false
+
+# --- Logging -----------------------------------------------------------------
+# Auf stdout (journald übernimmt via systemd): kein separates Logfile nötig.
+log=console
+log-level=INFO
