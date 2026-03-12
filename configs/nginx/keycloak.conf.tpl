@@ -16,7 +16,7 @@
 # abgebrochen, weil Connection "" den Upgrade-Header unterdrückt.
 map $http_upgrade $connection_upgrade {
     default upgrade;
-    ''      '';
+    ""      "";
 }
 
 upstream keycloak_backend {
