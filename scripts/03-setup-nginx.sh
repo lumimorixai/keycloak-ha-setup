@@ -26,9 +26,9 @@ source "${SCRIPT_DIR}/00-common.sh"
 # Konstanten
 # ------------------------------------------------------------------------------
 readonly NGINX_VHOST_TPL="${REPO_DIR}/configs/nginx/keycloak.conf.tpl"
-readonly NGINX_VHOST_DST="/etc/nginx/sites-available/keycloak.conf"
-readonly NGINX_VHOST_LINK="/etc/nginx/sites-enabled/keycloak.conf"
-readonly NGINX_DEFAULT_LINK="/etc/nginx/sites-enabled/default"
+# nginx.org-Paket nutzt conf.d/ (kein sites-available/sites-enabled wie beim Debian-Paket)
+readonly NGINX_VHOST_DST="/etc/nginx/conf.d/keycloak.conf"
+readonly NGINX_DEFAULT_CONF="/etc/nginx/conf.d/default.conf"
 readonly CERTBOT_WEBROOT="/var/www/certbot"
 readonly CERT_DIR="/etc/letsencrypt/live"
 readonly NGINX_KEYRING="/usr/share/keyrings/nginx-keyring.gpg"
@@ -104,12 +104,12 @@ fi
 
 log_info "--- Schritt 3/5: Nginx vHost deployen ---"
 
-# Default-vHost deaktivieren (verhindert Konflikte mit unserem vHost)
-if [[ -L "${NGINX_DEFAULT_LINK}" ]]; then
-    rm -f "${NGINX_DEFAULT_LINK}"
-    log_info "Default-vHost deaktiviert: ${NGINX_DEFAULT_LINK}"
+# Default-vHost entfernen (nginx.org-Paket legt default.conf in conf.d/ an)
+if [[ -f "${NGINX_DEFAULT_CONF}" ]]; then
+    rm -f "${NGINX_DEFAULT_CONF}"
+    log_info "Default-vHost entfernt: ${NGINX_DEFAULT_CONF}"
 else
-    log_info "Default-vHost bereits deaktiviert."
+    log_info "Default-vHost bereits entfernt."
 fi
 
 nginx_changed=0
@@ -121,16 +121,6 @@ if [[ ! -f "${NGINX_VHOST_DST}" ]] \
 fi
 
 deploy_config "${NGINX_VHOST_TPL}" "${NGINX_VHOST_DST}" "root:root" "0644"
-
-# Symlink in sites-enabled setzen (idempotent)
-if [[ ! -L "${NGINX_VHOST_LINK}" ]] \
-    || [[ "$(readlink -f "${NGINX_VHOST_LINK}")" != "$(readlink -f "${NGINX_VHOST_DST}")" ]]; then
-    ln -sfn "${NGINX_VHOST_DST}" "${NGINX_VHOST_LINK}"
-    log_info "Nginx vHost aktiviert: ${NGINX_VHOST_LINK}"
-    nginx_changed=1
-else
-    log_info "Nginx vHost-Symlink bereits korrekt: ${NGINX_VHOST_LINK}"
-fi
 
 # Nginx-Syntax prüfen
 log_info "Nginx-Konfiguration wird geprüft..."
