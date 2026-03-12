@@ -113,7 +113,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **Nginx Proxy-Buffer:** Keycloak-Token können sehr groß werden (viele Realm-Rollen). Ohne `proxy_buffer_size 128k` und `proxy_buffers 4 256k` kommen 502-Fehler.
 - **Let's Encrypt Staging:** Beim Testen immer `--staging` nutzen. Produktiv-Rate-Limit: max 5 Zertifikate pro Domain pro Woche.
 - **PostgreSQL Auth:** `scram-sha-256` bevorzugen statt `md5` in pg_hba.conf.
-- **Keycloak Download:** SHA512-Checksum gegen `https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha512` verifizieren.
+- **Keycloak Download:** SHA1-Checksum gegen `https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha1` verifizieren (ab 26.x nur noch `.sha1`, kein `.sha512` mehr).
 - **Nginx aus offiziellem Repo:** Das Debian-Paket ist oft zu alt. Keyring von `nginx.org/keys/nginx_signing.key` einrichten + Pin-Priority 901 via `/etc/apt/preferences.d/99nginx`, damit nginx.org Vorrang hat.
 - **WebSocket-Support Nginx:** Admin-Console nutzt WebSocket-Verbindungen. `proxy_set_header Connection ""` allein bricht WS ab. Zwingend einen `map $http_upgrade $connection_upgrade`-Block einsetzen und `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade;` verwenden.
 - **proxy_read_timeout für WebSocket:** 60s ist zu kurz – idle WS-Verbindungen der Admin-Console werden getrennt → UI-Fehler. Wert: 3600s.

@@ -51,7 +51,7 @@ require_root
 readonly KC_INSTALL_DIR="${KC_INSTALL_BASE}/keycloak-${KC_VERSION}"
 readonly KC_TARBALL="/tmp/keycloak-${KC_VERSION}.tar.gz"
 readonly KC_DOWNLOAD_URL="https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz"
-readonly KC_CHECKSUM_URL="https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha512"
+readonly KC_CHECKSUM_URL="https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha1"
 readonly KC_CONF_DST="${KC_SYMLINK}/conf/keycloak.conf"
 readonly KC_BUILD_HASH_FILE="${KC_SYMLINK}/conf/.build-hash"
 readonly JAVA_PKG="temurin-${JAVA_VERSION}-jdk"
@@ -133,18 +133,18 @@ else
     log_info "Lade Keycloak ${KC_VERSION} herunter: ${KC_DOWNLOAD_URL}"
     curl -fsSL --output "${KC_TARBALL}" "${KC_DOWNLOAD_URL}"
 
-    log_info "Verifiziere SHA512-Checksumme..."
-    expected_sha512="$(curl -fsSL "${KC_CHECKSUM_URL}" | awk '{print $1}')"
-    actual_sha512="$(sha512sum "${KC_TARBALL}" | awk '{print $1}')"
+    log_info "Verifiziere SHA1-Checksumme..."
+    expected_sha1="$(curl -fsSL "${KC_CHECKSUM_URL}" | awk '{print $1}')"
+    actual_sha1="$(sha1sum "${KC_TARBALL}" | awk '{print $1}')"
 
-    if [[ "${expected_sha512}" != "${actual_sha512}" ]]; then
-        log_err "SHA512-Prüfsumme stimmt NICHT überein – Datei möglicherweise beschädigt oder manipuliert!"
-        log_err "  Erwartet: ${expected_sha512}"
-        log_err "  Ist:      ${actual_sha512}"
+    if [[ "${expected_sha1}" != "${actual_sha1}" ]]; then
+        log_err "SHA1-Prüfsumme stimmt NICHT überein – Datei möglicherweise beschädigt oder manipuliert!"
+        log_err "  Erwartet: ${expected_sha1}"
+        log_err "  Ist:      ${actual_sha1}"
         rm -f "${KC_TARBALL}"
         exit 1
     fi
-    log_info "SHA512-Checksumme verifiziert."
+    log_info "SHA1-Checksumme verifiziert."
 
     tar -xzf "${KC_TARBALL}" -C "${KC_INSTALL_BASE}"
     rm -f "${KC_TARBALL}"
