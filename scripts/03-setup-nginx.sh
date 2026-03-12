@@ -112,15 +112,19 @@ else
     log_info "Default-vHost bereits entfernt."
 fi
 
+# Nur die tatsächlichen Shell-Variablen substituieren – nginx-Variablen wie
+# $http_upgrade oder $connection_upgrade dürfen NICHT durch envsubst ersetzt werden.
+readonly NGINX_ENVSUBST_VARS='${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_HTTP_PORT} ${KC_MGMT_PORT}'
+
 nginx_changed=0
 if [[ ! -f "${NGINX_VHOST_DST}" ]] \
     || ! diff -q \
-        <(envsubst < "${NGINX_VHOST_TPL}") \
+        <(envsubst "${NGINX_ENVSUBST_VARS}" < "${NGINX_VHOST_TPL}") \
         "${NGINX_VHOST_DST}" &>/dev/null; then
     nginx_changed=1
 fi
 
-deploy_config "${NGINX_VHOST_TPL}" "${NGINX_VHOST_DST}" "root:root" "0644"
+deploy_config "${NGINX_VHOST_TPL}" "${NGINX_VHOST_DST}" "root:root" "0644" "${NGINX_ENVSUBST_VARS}"
 
 # Nginx-Syntax prüfen
 log_info "Nginx-Konfiguration wird geprüft..."

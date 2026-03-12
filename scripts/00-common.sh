@@ -174,6 +174,11 @@ deploy_config() {
     local target="${2}"
     local owner="${3:-}"
     local mode="${4:-}"
+    # Optionaler 5. Parameter: explizite envsubst-Variablenliste (z.B. '${KC_DOMAIN} ${KC_NODE1_IP}').
+    # Nötig wenn das Template neben Shell-Variablen auch andere $var-Muster enthält
+    # (z.B. nginx-Variablen wie $http_upgrade), die NICHT ersetzt werden dürfen.
+    # Ohne diesen Parameter werden ALLE $var-Muster ersetzt.
+    local envsubst_vars="${5:-}"
 
     if [[ ! -f "${template}" ]]; then
         log_err "deploy_config: Template nicht gefunden: ${template}"
@@ -183,7 +188,11 @@ deploy_config() {
     # Envsubst auf Template anwenden → temporäre Datei
     local tmp_file
     tmp_file="$(mktemp)"
-    envsubst < "${template}" > "${tmp_file}"
+    if [[ -n "${envsubst_vars}" ]]; then
+        envsubst "${envsubst_vars}" < "${template}" > "${tmp_file}"
+    else
+        envsubst < "${template}" > "${tmp_file}"
+    fi
 
     # Zieldatei existiert und ist identisch → nichts tun
     if [[ -f "${target}" ]] && diff -q "${tmp_file}" "${target}" &>/dev/null; then
