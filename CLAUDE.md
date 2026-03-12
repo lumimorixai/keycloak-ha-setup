@@ -13,7 +13,7 @@ Der vollständige Architektur- und Umsetzungsplan liegt in `docs/PLAN.md`.
 | PostgreSQL   | 16 (offizielles pgdg-Repo) | Mindestversion für KC 26.4+ ist PG 13        |
 | Java         | OpenJDK 21 (Adoptium Temurin) | Adoptium statt Ubuntu-Paket – besser getestet mit Quarkus |
 | Nginx        | Aktuell (offizielles Repo)  | TLS-Terminierung + Reverse Proxy             |
-| Certbot      | Aktuell                     | Let's Encrypt ACME, Auto-Renewal via Cron    |
+| Certbot      | Aktuell                     | Let's Encrypt ACME, Auto-Renewal via systemd-Timer (apt-daily-upgrade.timer) |
 | OS           | Ubuntu 24.04 LTS            | Auf allen 4 VMs                              |
 
 ## Architektur
@@ -39,13 +39,13 @@ keycloak-ha-setup/
 ├── CLAUDE.md                   ← diese Datei
 ├── README.md
 ├── .env.example
-├── .gitignore                  # enthält: .env, *.bak
+├── .gitignore                  # enthält: .env + .env.*, *.pem/key/crt, SSH-Keys, *.log, !.env.example
 ├── scripts/
 │   ├── 00-common.sh            # Shared Functions, .env-Loader, Idempotenz-Helpers
 │   ├── 01-setup-db.sh          # PostgreSQL – Ausführung auf db01
 │   ├── 02-setup-keycloak.sh    # JDK + Keycloak – Ausführung auf kc01 und kc02
 │   ├── 03-setup-nginx.sh       # Nginx + Certbot – Ausführung auf lb01
-│   ├── 04-harden.sh            # UFW + SSH + Fail2ban – Ausführung auf allen VMs
+│   ├── 04-harden.sh            # UFW + SSH + Fail2ban + Unattended-Upgrades – Pflichtparameter: db|keycloak|lb
 │   └── 99-healthcheck.sh       # Validierung – Ausführung von lb01 oder extern
 ├── configs/
 │   ├── keycloak/
@@ -114,6 +114,17 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **Let's Encrypt Staging:** Beim Testen immer `--staging` nutzen. Produktiv-Rate-Limit: max 5 Zertifikate pro Domain pro Woche.
 - **PostgreSQL Auth:** `scram-sha-256` bevorzugen statt `md5` in pg_hba.conf.
 - **Keycloak Download:** SHA512-Checksum gegen `https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha512` verifizieren.
+- **Nginx aus offiziellem Repo:** Das Ubuntu-Paket ist oft zu alt. Keyring von `nginx.org/keys/nginx_signing.key` einrichten + Pin-Priority 901 via `/etc/apt/preferences.d/99nginx`, damit nginx.org Vorrang hat.
+- **WebSocket-Support Nginx:** Admin-Console nutzt WebSocket-Verbindungen. `proxy_set_header Connection ""` allein bricht WS ab. Zwingend einen `map $http_upgrade $connection_upgrade`-Block einsetzen und `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade;` verwenden.
+- **proxy_read_timeout für WebSocket:** 60s ist zu kurz – idle WS-Verbindungen der Admin-Console werden getrennt → UI-Fehler. Wert: 3600s.
+- **KC_HTTPS_PORT nicht verwenden:** TLS terminiert am Nginx, Keycloak hört ausschließlich HTTP. `KC_HTTPS_PORT` existiert nicht in `.env.example` und soll auch nicht hinzugefügt werden.
+- **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
+- **UFW ist nativ idempotent:** `ufw allow` fügt dieselbe Regel nicht doppelt ein. Pre-Checks via `ufw status | grep ...` sind fehleranfällig (Formatabhängig) und unnötig.
+- **grep -q in Pipes:** `grep -qF "${var}" | grep -q "${port}"` ist kaputt – `-q` unterdrückt stdout, der zweite grep prüft gegen leeren Stream. Stattdessen: `ufw allow` direkt aufrufen oder Prüfung ohne Pipe.
+- **Template-Variablen grep:** Pattern `[A-Z_]+` erfasst keine Ziffern – `KC_NODE1_IP` wird nicht gefunden. Korrektes Pattern: `[A-Z0-9_]+`.
+- **Cluster-Membership prüfen:** `/health` liefert pro Keycloak-Node `.checks[].data.numberOfNodes`. Wert muss 2 sein. `status=UP` allein erkennt keinen Split-Brain (jede Node sieht sich selbst als einziges Mitglied).
+- **TLS-Check ohne root:** `openssl s_client -connect domain:443` statt lokale Zertifikatsdatei lesen – funktioniert von extern und ohne root-Rechte.
+- **ADMIN_IPS ist optional:** Die Variable steht in `.env.example`, aber NICHT in `required_vars` in `00-common.sh` – leerer Wert bedeutet SSH-Zugriff von allen IPs. Nie als Pflichtfeld hinzufügen.
 
 ## Netzwerk-Ports (Referenz für Firewall-Regeln)
 
@@ -130,6 +141,6 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 Nach dem Erstellen jeder Datei:
 
 1. **Shell-Skripte:** `shellcheck --severity=warning scripts/*.sh`
-2. **Templates:** Prüfe, dass jede `${VARIABLE}` in `.env.example` definiert ist und umgekehrt
+2. **Templates:** Prüfe, dass jede `${VARIABLE}` in `.env.example` definiert ist und umgekehrt. Grep-Pattern muss Ziffern einschließen: `grep -ohE '\$\{[A-Z0-9_]+\}'` (nicht `[A-Z_]+`, das übersieht z.B. `KC_NODE1_IP`)
 3. **systemd Unit:** `systemd-analyze verify` (falls lokal verfügbar)
 4. **Nginx Config:** `nginx -t` (nach envsubst auf einer Test-Config)
