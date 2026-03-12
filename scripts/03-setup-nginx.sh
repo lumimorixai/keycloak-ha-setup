@@ -124,23 +124,46 @@ if [[ ! -f "${NGINX_VHOST_DST}" ]] \
     nginx_changed=1
 fi
 
-deploy_config "${NGINX_VHOST_TPL}" "${NGINX_VHOST_DST}" "root:root" "0644" "${NGINX_ENVSUBST_VARS}"
+cert_path="${CERT_DIR}/${KC_DOMAIN}/fullchain.pem"
 
-# Nginx-Syntax prüfen
-log_info "Nginx-Konfiguration wird geprüft..."
-nginx -t
-log_info "Nginx-Syntax OK."
+if [[ ! -f "${cert_path}" ]]; then
+    # ===========================================================================
+    # Kein Zertifikat vorhanden: temporäre HTTP-only-Config für ACME-Challenge.
+    # Die vollständige HTTPS-Config referenziert das Zertifikat und kann erst
+    # nach Certbot deployed werden (Henne-Ei-Problem).
+    # ===========================================================================
+    log_info "Kein TLS-Zertifikat gefunden – temporäre HTTP-only-Config für ACME-Challenge."
 
-# Nginx neu laden (nur bei Änderungen oder falls nicht aktiv)
-if systemctl is-active --quiet nginx; then
-    if [[ "${nginx_changed}" -eq 1 ]]; then
+    tmp_http_conf="$(mktemp /tmp/nginx-acme-XXXXXX.conf)"
+    cat > "${tmp_http_conf}" <<EOF
+# Temporäre HTTP-only-Config für Certbot ACME-Challenge
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${KC_DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        try_files \$uri =404;
+    }
+
+    location / {
+        return 200 'nginx OK – warte auf TLS-Zertifikat';
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+    cp "${tmp_http_conf}" "${NGINX_VHOST_DST}"
+    rm -f "${tmp_http_conf}"
+    log_info "Temporäre HTTP-only-Config deployed: ${NGINX_VHOST_DST}"
+
+    nginx -t
+    if systemctl is-active --quiet nginx; then
         systemctl reload nginx
-        log_info "Nginx neu geladen (Konfiguration geändert)."
     else
-        log_info "Nginx läuft, keine Änderungen – kein Reload nötig."
+        ensure_service nginx
     fi
-else
-    ensure_service nginx
+    log_info "Nginx mit HTTP-only-Config gestartet."
 fi
 
 # ==============================================================================
@@ -148,8 +171,6 @@ fi
 # ==============================================================================
 
 log_info "--- Schritt 4/5: TLS-Zertifikat beantragen ---"
-
-cert_path="${CERT_DIR}/${KC_DOMAIN}/fullchain.pem"
 
 if [[ -f "${cert_path}" ]]; then
     log_info "TLS-Zertifikat bereits vorhanden: ${cert_path}"
@@ -176,11 +197,26 @@ else
         ${certbot_staging_flag:+"${certbot_staging_flag}"}
 
     log_info "TLS-Zertifikat erfolgreich beantragt: ${cert_path}"
+fi
 
-    # Nginx mit vollem TLS-Config neu laden
-    nginx -t
-    systemctl reload nginx
-    log_info "Nginx mit TLS-Konfiguration neu geladen."
+# Zertifikat jetzt vorhanden: vollständige HTTPS-Config deployen
+deploy_config "${NGINX_VHOST_TPL}" "${NGINX_VHOST_DST}" "root:root" "0644" "${NGINX_ENVSUBST_VARS}"
+
+# Nginx-Syntax prüfen
+log_info "Nginx-Konfiguration wird geprüft..."
+nginx -t
+log_info "Nginx-Syntax OK."
+
+# Nginx neu laden (nur bei Änderungen oder falls nicht aktiv)
+if systemctl is-active --quiet nginx; then
+    if [[ "${nginx_changed}" -eq 1 ]]; then
+        systemctl reload nginx
+        log_info "Nginx neu geladen (Konfiguration geändert)."
+    else
+        log_info "Nginx läuft, keine Änderungen – kein Reload nötig."
+    fi
+else
+    ensure_service nginx
 fi
 
 # ==============================================================================
