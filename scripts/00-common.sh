@@ -77,6 +77,7 @@ load_env() {
         KC_ADMIN_PASSWORD
         KC_HTTP_PORT
         KC_JGROUPS_PORT
+        KC_MGMT_PORT
         JAVA_VERSION
         JAVA_OPTS
         SSH_PORT

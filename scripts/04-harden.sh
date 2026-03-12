@@ -123,6 +123,11 @@ case "${vm_role}" in
             comment "Keycloak HTTP von lb01"
         log_info "Keycloak HTTP-Zugriff erlaubt von lb01 (${LB_HOST}:${KC_HTTP_PORT})"
 
+        # Management-Port (Health/Metrics) vom Load Balancer – seit KC 25+ Port 9000
+        ufw allow from "${LB_HOST}" to any port "${KC_MGMT_PORT}" proto tcp \
+            comment "Keycloak Management von lb01"
+        log_info "Keycloak Management-Port erlaubt von lb01 (${LB_HOST}:${KC_MGMT_PORT})"
+
         # JGroups TCP zwischen kc01 und kc02 (bidirektional).
         # Beide IPs bekommen die Regel – kein separates Skript pro Node nötig.
         for peer_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do

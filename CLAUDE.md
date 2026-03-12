@@ -118,6 +118,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **WebSocket-Support Nginx:** Admin-Console nutzt WebSocket-Verbindungen. `proxy_set_header Connection ""` allein bricht WS ab. Zwingend einen `map $http_upgrade $connection_upgrade`-Block einsetzen und `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade;` verwenden.
 - **proxy_read_timeout für WebSocket:** 60s ist zu kurz – idle WS-Verbindungen der Admin-Console werden getrennt → UI-Fehler. Wert: 3600s.
 - **KC_HTTPS_PORT nicht verwenden:** TLS terminiert am Nginx, Keycloak hört ausschließlich HTTP. `KC_HTTPS_PORT` existiert nicht in `.env.example` und soll auch nicht hinzugefügt werden.
+- **Management-Port 9000:** Seit Keycloak 25+ laufen `/health/ready` und `/metrics` auf Port 9000 (Management-Interface), NICHT auf Port 8080. `curl http://<node>:9000/health/ready` für Health-Checks verwenden. Port 9000 muss in UFW für lb01 freigegeben sein.
 - **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
 - **UFW ist nativ idempotent:** `ufw allow` fügt dieselbe Regel nicht doppelt ein. Pre-Checks via `ufw status | grep ...` sind fehleranfällig (Formatabhängig) und unnötig.
 - **grep -q in Pipes:** `grep -qF "${var}" | grep -q "${port}"` ist kaputt – `-q` unterdrückt stdout, der zweite grep prüft gegen leeren Stream. Stattdessen: `ufw allow` direkt aufrufen oder Prüfung ohne Pipe.
@@ -133,6 +134,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 | User  | lb01  | 443  | HTTPS (Keycloak UI/API)      |
 | User  | lb01  | 80   | HTTP (ACME Challenge only)   |
 | lb01  | kc*   | 8080 | Reverse Proxy → Keycloak     |
+| lb01  | kc*   | 9000 | Health-Check (Management)    |
 | kc*   | db01  | 5432 | PostgreSQL                   |
 | kc01  | kc02  | 7800 | JGroups TCP (bidirektional)  |
 

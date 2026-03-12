@@ -41,9 +41,12 @@ cache=ispn
 cache-stack=jdbc-ping
 
 # --- Health & Metrics --------------------------------------------------------
-# /health/ready wird von 99-healthcheck.sh und Nginx-Upstream-Check genutzt.
+# Seit Keycloak 25+ laufen Health/Metrics auf einem separaten Management-Port
+# (Standard: 9000), NICHT auf dem HTTP-Port (8080).
+# /health/ready erreichbar unter http://<node>:${KC_MGMT_PORT}/health/ready
 health-enabled=true
 metrics-enabled=false
+http-management-port=${KC_MGMT_PORT}
 
 # --- Logging -----------------------------------------------------------------
 # Auf stdout (journald übernimmt via systemd): kein separates Logfile nötig.

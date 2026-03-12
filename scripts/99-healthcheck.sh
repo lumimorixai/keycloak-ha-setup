@@ -100,6 +100,8 @@ printf '  %s%-16s%s %s\n' "${C_DIM}" "Zeitpunkt:" "${C_RESET}" "$(date '+%Y-%m-%
 printf '  %s%-16s%s %s\n' "${C_DIM}" "Domain:" "${C_RESET}" "${KC_DOMAIN}"
 printf '  %s%-16s%s %s / %s\n' "${C_DIM}" "KC-Nodes:" "${C_RESET}" \
     "${KC_NODE1_IP}:${KC_HTTP_PORT}" "${KC_NODE2_IP}:${KC_HTTP_PORT}"
+printf '  %s%-16s%s %s / %s\n' "${C_DIM}" "KC-Mgmt:" "${C_RESET}" \
+    "${KC_NODE1_IP}:${KC_MGMT_PORT}" "${KC_NODE2_IP}:${KC_MGMT_PORT}"
 printf '  %s%-16s%s %s:5432 / %s\n\n' "${C_DIM}" "PostgreSQL:" "${C_RESET}" \
     "${DB_HOST}" "${DB_NAME}"
 
@@ -110,11 +112,11 @@ printf '  %s%-16s%s %s:5432 / %s\n\n' "${C_DIM}" "PostgreSQL:" "${C_RESET}" \
 section "Keycloak /health/ready (direkt)"
 
 for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
-    url="http://${node_ip}:${KC_HTTP_PORT}/health/ready"
+    url="http://${node_ip}:${KC_MGMT_PORT}/health/ready"
     http_code="$(curl -sf --max-time "${HTTP_TIMEOUT}" \
         -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || echo "000")"
 
-    label="Node ${node_ip}:${KC_HTTP_PORT} /health/ready"
+    label="Node ${node_ip}:${KC_MGMT_PORT} /health/ready"
     if [[ "${http_code}" == "200" ]]; then
         check_ok "${label}" "HTTP ${http_code}"
     else
@@ -156,7 +158,7 @@ fi
 section "Cluster-Mitgliedschaft"
 
 for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
-    url="http://${node_ip}:${KC_HTTP_PORT}/health"
+    url="http://${node_ip}:${KC_MGMT_PORT}/health"
     label="Cluster-Nodes aus Sicht von ${node_ip}"
 
     response="$(curl -sf --max-time "${HTTP_TIMEOUT}" "${url}" 2>/dev/null || echo "")"
