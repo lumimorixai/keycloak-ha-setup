@@ -39,7 +39,7 @@ Keycloak          Keycloak
 - **Adoptium Temurin JDK 21**: Bessere Quarkus-Kompatibilität als Debian-Paket
 - **JGroups TCP**: Cluster-Datentransport direkt zwischen kc01 und kc02 (Port 7800)
 - **JDBC_PING2**: Cluster-Discovery via PostgreSQL (kein Multicast benötigt)
-- **UFW**: Erlaubt 8080/tcp von lb01, 7800/tcp zwischen kc01↔kc02, SSH
+- **UFW**: Erlaubt 8080/tcp von lb01, 9000/tcp von lb01 (Management/Health), 7800/tcp zwischen kc01↔kc02, SSH
 - **Fail2ban**: SSH-Schutz
 
 ### db01 – Datenbank

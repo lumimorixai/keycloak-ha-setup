@@ -50,11 +50,12 @@ Richtet Nginx mit TLS-Terminierung und Certbot ein. DNS muss vorher korrekt gese
 ### Phase 4: Hardening (alle VMs)
 
 ```bash
-# Auf db01, kc01, kc02, lb01 jeweils:
-sudo scripts/04-harden.sh
+sudo scripts/04-harden.sh db        # auf db01
+sudo scripts/04-harden.sh keycloak  # auf kc01 und kc02
+sudo scripts/04-harden.sh lb        # auf lb01
 ```
 
-Setzt UFW-Firewall-Regeln (rollenbasiert), SSH-Hardening und Fail2ban.
+Setzt UFW-Firewall-Regeln (rollenbasiert), SSH-Hardening und Fail2ban. Der VM-Typ ist ein Pflichtparameter.
 
 ### Phase 5: Validierung (von lb01 oder extern)
 
@@ -81,6 +82,7 @@ Prüft alle Endpunkte, Cluster-Status, TLS-Zertifikat und Datenbankverbindung.
 | `cache` | `ispn` | Infinispan-Clustering via JGroups |
 | `cache-stack` | `jdbc-ping` | JDBC_PING2 Discovery über PostgreSQL |
 | `http-port` | `${KC_HTTP_PORT}` | Standard: 8080 |
+| `http-management-port` | `${KC_MGMT_PORT}` | Standard: 9000 – Health/Metrics seit KC 25+ |
 
 ### JGroups / Cluster-Discovery
 
@@ -105,6 +107,7 @@ Prüft alle Endpunkte, Cluster-Status, TLS-Zertifikat und Datenbankverbindung.
 | User  | lb01  | 443  | HTTPS (Keycloak UI/API)      |
 | User  | lb01  | 80   | HTTP (ACME Challenge only)   |
 | lb01  | kc*   | 8080 | Reverse Proxy → Keycloak     |
+| lb01  | kc*   | 9000 | Health-Check (Management)    |
 | kc*   | db01  | 5432 | PostgreSQL                   |
 | kc01  | kc02  | 7800 | JGroups TCP (bidirektional)  |
 

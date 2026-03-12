@@ -55,7 +55,7 @@ $EDITOR .env   # Pflichtfelder: DB_PASSWORD, KC_ADMIN_PASSWORD, IPs, Domain
 ssh db01  "sudo /opt/keycloak-ha-setup/scripts/01-setup-db.sh"
 ssh kc01  "sudo /opt/keycloak-ha-setup/scripts/02-setup-keycloak.sh"
 # kc01 abwarten:
-ssh kc01  "until curl -sf http://localhost:8080/health/ready; do sleep 5; done"
+ssh kc01  "until curl -sf http://localhost:9000/health/ready; do sleep 5; done"
 ssh kc02  "sudo /opt/keycloak-ha-setup/scripts/02-setup-keycloak.sh"
 ssh lb01  "sudo /opt/keycloak-ha-setup/scripts/03-setup-nginx.sh"
 # Hardening auf allen VMs:
@@ -116,7 +116,7 @@ Richtet ein:
 sudo scripts/02-setup-keycloak.sh
 
 # Warten bis kc01 bereit ist:
-until curl -sf "http://${KC_NODE1_IP}:8080/health/ready"; do
+until curl -sf "http://${KC_NODE1_IP}:9000/health/ready"; do
     echo "Warte auf kc01..."; sleep 5
 done
 
@@ -126,7 +126,7 @@ sudo scripts/02-setup-keycloak.sh
 
 Richtet ein:
 - Adoptium Temurin JDK 21 (aus adoptium.net-Repo)
-- Keycloak 26.5.5 (SHA512-verifiziert)
+- Keycloak 26.5.5 (SHA1-verifiziert)
 - systemd-Service mit `--optimized`-Flag nach `kc.sh build`
 - JDBC_PING2-Clustering via PostgreSQL-Discovery
 

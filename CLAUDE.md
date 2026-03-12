@@ -90,7 +90,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 | `load_env`          | Lädt `.env`, prüft Pflichtfelder, bricht bei Fehler ab        |
 | `require_root`      | Prüft root/sudo, bricht ab falls nicht                        |
 | `ensure_package`    | apt install nur wenn nicht installiert                         |
-| `deploy_config`     | Template → Ziel via envsubst, Backup falls Ziel existiert     |
+| `deploy_config`     | Template → Ziel via envsubst, Backup falls Ziel existiert; optionaler 5. Parameter: Variablenliste für envsubst (z.B. `'${KC_DOMAIN} ${KC_NODE1_IP}'`) – nötig wenn Template neben Shell-Variablen auch andere `$var`-Muster enthält (z.B. nginx-Variablen wie `$http_upgrade`) |
 | `ensure_service`    | systemctl enable + start nur wenn nicht bereits aktiv          |
 | `backup_file`       | Timestamped Backup (.bak.YYYYMMDD-HHMMSS)                    |
 | `log_info`          | `[INFO] timestamp message` auf stdout                         |
@@ -114,7 +114,9 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **Let's Encrypt Staging:** Beim Testen immer `--staging` nutzen. Produktiv-Rate-Limit: max 5 Zertifikate pro Domain pro Woche.
 - **PostgreSQL Auth:** `scram-sha-256` bevorzugen statt `md5` in pg_hba.conf.
 - **Keycloak Download:** SHA1-Checksum gegen `https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha1` verifizieren (ab 26.x nur noch `.sha1`, kein `.sha512` mehr).
-- **Nginx aus offiziellem Repo:** Das Debian-Paket ist oft zu alt. Keyring von `nginx.org/keys/nginx_signing.key` einrichten + Pin-Priority 901 via `/etc/apt/preferences.d/99nginx`, damit nginx.org Vorrang hat.
+- **Nginx aus offiziellem Repo:** Das Debian-Paket ist oft zu alt. Keyring von `nginx.org/keys/nginx_signing.key` einrichten + Pin-Priority 901 via `/etc/apt/preferences.d/99nginx`, damit nginx.org Vorrang hat. Das nginx.org-Paket nutzt `/etc/nginx/conf.d/` (NICHT `sites-available/sites-enabled/` – das ist eine Debian-Paket-Konvention).
+- **Certbot Henne-Ei-Problem:** Beim Erststart existiert noch kein TLS-Zertifikat, aber die nginx-Config referenziert es. Lösung: temporäre HTTP-only-Config deployen → nginx starten → Certbot → vollständige HTTPS-Config deployen.
+- **envsubst und nginx-Variablen:** `envsubst` ohne Argumente ersetzt ALLE `$var`-Muster – auch nginx-interne Variablen wie `$http_upgrade`. `deploy_config` mit expliziter Variablenliste als 5. Parameter aufrufen: `'${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_HTTP_PORT} ${KC_MGMT_PORT}'`.
 - **WebSocket-Support Nginx:** Admin-Console nutzt WebSocket-Verbindungen. `proxy_set_header Connection ""` allein bricht WS ab. Zwingend einen `map $http_upgrade $connection_upgrade`-Block einsetzen und `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade;` verwenden.
 - **proxy_read_timeout für WebSocket:** 60s ist zu kurz – idle WS-Verbindungen der Admin-Console werden getrennt → UI-Fehler. Wert: 3600s.
 - **KC_HTTPS_PORT nicht verwenden:** TLS terminiert am Nginx, Keycloak hört ausschließlich HTTP. `KC_HTTPS_PORT` existiert nicht in `.env.example` und soll auch nicht hinzugefügt werden.

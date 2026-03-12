@@ -117,10 +117,10 @@ systemctl start keycloak
 
 ```bash
 # Auf lb01:
-ls /etc/nginx/sites-available/keycloak.conf.bak.*
+ls /etc/nginx/conf.d/keycloak.conf.bak.*
 
-cp /etc/nginx/sites-available/keycloak.conf.bak.YYYYMMDD-HHMMSS \
-   /etc/nginx/sites-available/keycloak.conf
+cp /etc/nginx/conf.d/keycloak.conf.bak.YYYYMMDD-HHMMSS \
+   /etc/nginx/conf.d/keycloak.conf
 
 nginx -t && systemctl reload nginx
 ```
