@@ -36,7 +36,7 @@ Keycloak          Keycloak
 ### kc01 / kc02 – Keycloak-Nodes
 
 - **Keycloak 26.5.5**: Quarkus-Distribution, `--optimized` Start nach Build
-- **Adoptium Temurin JDK 21**: Bessere Quarkus-Kompatibilität als Ubuntu-Paket
+- **Adoptium Temurin JDK 21**: Bessere Quarkus-Kompatibilität als Debian-Paket
 - **JGroups TCP**: Cluster-Datentransport direkt zwischen kc01 und kc02 (Port 7800)
 - **JDBC_PING2**: Cluster-Discovery via PostgreSQL (kein Multicast benötigt)
 - **UFW**: Erlaubt 8080/tcp von lb01, 7800/tcp zwischen kc01↔kc02, SSH
@@ -44,7 +44,7 @@ Keycloak          Keycloak
 
 ### db01 – Datenbank
 
-- **PostgreSQL 16**: Quell-Repo von postgresql.org (pgdg), nicht Ubuntu-Paket
+- **PostgreSQL 16**: Quell-Repo von postgresql.org (pgdg), nicht Debian-Paket
 - **pg_hba.conf**: scram-sha-256 Auth, Zugriff nur von kc01 und kc02
 - **UFW**: Erlaubt 5432/tcp nur von KC-Node-IPs, SSH
 

@@ -46,7 +46,7 @@ log_info "=== Nginx + Certbot Setup startet ==="
 # ==============================================================================
 # Schritt 1/5: Nginx aus offiziellem nginx.org-Repo + Certbot installieren
 # ==============================================================================
-# Das Ubuntu-Standard-Paket ist oft deutlich älter. Das offizielle Repo liefert
+# Das Debian-Standard-Paket ist oft deutlich älter. Das offizielle Repo liefert
 # aktuelle Stable-Releases mit allen Security-Fixes.
 
 log_info "--- Schritt 1/5: Nginx (nginx.org) + Certbot installieren ---"
@@ -66,9 +66,9 @@ fi
 
 if [[ ! -f "${NGINX_SOURCES}" ]]; then
     os_codename="$(lsb_release -cs)"
-    printf 'deb [signed-by=%s] https://nginx.org/packages/ubuntu %s nginx\n' \
+    printf 'deb [signed-by=%s] https://nginx.org/packages/debian %s nginx\n' \
         "${NGINX_KEYRING}" "${os_codename}" > "${NGINX_SOURCES}"
-    # Das offizielle Repo soll das Ubuntu-Paket vorrangig bedienen
+    # Das offizielle Repo soll das Debian-Paket vorrangig bedienen
     printf 'Package: *\nPin: origin nginx.org\nPin-Priority: 901\n' \
         > /etc/apt/preferences.d/99nginx
     log_info "Nginx-Repository (nginx.org) hinzugefügt: ${NGINX_SOURCES}"

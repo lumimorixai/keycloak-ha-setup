@@ -198,7 +198,7 @@ ls /etc/ssh/sshd_config.d/99-keycloak-hardening.conf.bak.*
 cp /etc/ssh/sshd_config.d/99-keycloak-hardening.conf.bak.YYYYMMDD-HHMMSS \
    /etc/ssh/sshd_config.d/99-keycloak-hardening.conf
 
-# Oder: Drop-in komplett entfernen (stellt Ubuntu-Defaults wieder her)
+# Oder: Drop-in komplett entfernen (stellt Debian-Defaults wieder her)
 rm /etc/ssh/sshd_config.d/99-keycloak-hardening.conf
 
 # Konfiguration validieren und SSH neu laden

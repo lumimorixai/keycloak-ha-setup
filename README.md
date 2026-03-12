@@ -1,6 +1,6 @@
 # Keycloak HA Setup
 
-Reproduzierbares, idempotentes Setup für Keycloak 26 in HA-Konfiguration auf 4 Ubuntu 24.04 LTS VMs.
+Reproduzierbares, idempotentes Setup für Keycloak 26 in HA-Konfiguration auf 4 Debian 13 (Trixie) VMs.
 
 ## Architektur
 
@@ -27,7 +27,7 @@ Cluster-Discovery via JDBC_PING2 (PostgreSQL), kein Multicast erforderlich.
 
 **Voraussetzungen auf dem Deployment-Rechner / jeder VM**
 
-- Ubuntu 24.04 LTS auf allen VMs
+- Debian 13 (Trixie) auf allen VMs
 - SSH-Zugang mit Public-Key-Auth (root oder sudo-fähiger User)
 - Internetzugang auf allen VMs (Paket-Download, Let's Encrypt)
 - DNS-Eintrag für `KC_DOMAIN` zeigt auf lb01 (**vor** Schritt 3 erforderlich)

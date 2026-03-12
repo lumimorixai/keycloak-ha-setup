@@ -155,7 +155,7 @@ fi
 
 log_info "--- Schritt 3/6: SSH-Hardening ---"
 
-# Drop-in-Datei unter sshd_config.d/ (ab OpenSSH 8.2 / Ubuntu 20.04+).
+# Drop-in-Datei unter sshd_config.d/ (ab OpenSSH 8.2 / Debian 10+).
 # Überschreibt Werte aus /etc/ssh/sshd_config ohne diese zu modifizieren.
 readonly SSHD_HARDENING_CONF="/etc/ssh/sshd_config.d/99-keycloak-hardening.conf"
 
@@ -213,7 +213,7 @@ fi
 log_info "SSH-Konfiguration validiert (sshd -t OK)."
 
 if [[ "${sshd_changed}" -eq 1 ]]; then
-    # Ubuntu 22.04+: ssh.service; ältere: sshd.service
+    # Debian 13+: ssh.service; ältere: sshd.service
     systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
     log_info "SSH-Daemon neu geladen."
     log_warn "WICHTIG: SSH-Port ist jetzt ${SSH_PORT}, PasswordAuthentication deaktiviert."
@@ -321,7 +321,7 @@ else
 fi
 
 # 50unattended-upgrades: Legt fest, welche Origins eingespielt werden.
-# Nur Security-Updates – keine normalen Ubuntu-Updates (zu riskant ohne Test).
+# Nur Security-Updates – keine normalen Debian-Updates (zu riskant ohne Test).
 # Reboot wird NICHT automatisch durchgeführt (Server-Koordination nötig).
 
 readonly UNATTENDED_UPGRADES_CONF="/etc/apt/apt.conf.d/50unattended-upgrades"
@@ -331,9 +331,8 @@ cat > "${tmp_uu}" <<'EOF'
 // Keycloak HA – generiert von 04-harden.sh
 // Nur Security-Updates automatisch einspielen.
 Unattended-Upgrade::Allowed-Origins {
-    "${distro_id}:${distro_codename}-security";
-    "${distro_id}ESMApps:${distro_codename}-apps-security";
-    "${distro_id}ESM:${distro_codename}-infra-security";
+    "origin=Debian,codename=${distro_codename},label=Debian-Security";
+    "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
 };
 
 // Pakete, die NIEMALS automatisch aktualisiert werden (manueller Test erforderlich)

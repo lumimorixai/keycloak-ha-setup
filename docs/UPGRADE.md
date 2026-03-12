@@ -115,7 +115,7 @@ systemctl reload nginx
 
 Certbot konfiguriert den Nginx-Reload-Hook automatisch.
 
-## OS-Updates (Ubuntu)
+## OS-Updates (Debian)
 
 ```bash
 apt-get update && apt-get upgrade

@@ -2,11 +2,11 @@
 
 ## Übersicht
 
-Dieses Dokument beschreibt den vollständigen Deployment-Ablauf für das Keycloak HA-Setup auf 4 Ubuntu 24.04 LTS VMs. Alle Schritte sind idempotent – ein erneutes Ausführen ist sicher.
+Dieses Dokument beschreibt den vollständigen Deployment-Ablauf für das Keycloak HA-Setup auf 4 Debian 13 (Trixie) VMs. Alle Schritte sind idempotent – ein erneutes Ausführen ist sicher.
 
 ## Voraussetzungen
 
-- 4 VMs mit Ubuntu 24.04 LTS (db01, kc01, kc02, lb01)
+- 4 VMs mit Debian 13 (Trixie) (db01, kc01, kc02, lb01)
 - SSH-Zugang auf alle VMs (Public-Key-Auth empfohlen)
 - DNS-Eintrag für `KC_DOMAIN` zeigt auf lb01 (vor Schritt 3 erforderlich)
 - Repo geklont auf jeder VM (oder via rsync übertragen)

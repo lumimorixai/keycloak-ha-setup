@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Reproduzierbares HA-Keycloak-Setup via idempotenter Shell-Skripte für 4 Ubuntu 24.04 LTS VMs.
+Reproduzierbares HA-Keycloak-Setup via idempotenter Shell-Skripte für 4 Debian 13 (Trixie) VMs.
 Der vollständige Architektur- und Umsetzungsplan liegt in `docs/PLAN.md`.
 
 ## Stack
@@ -11,10 +11,10 @@ Der vollständige Architektur- und Umsetzungsplan liegt in `docs/PLAN.md`.
 |--------------|-----------------------------|----------------------------------------------|
 | Keycloak     | 26.5.5 (Quarkus-Distro)    | Pinned in `.env` als `KC_VERSION`            |
 | PostgreSQL   | 16 (offizielles pgdg-Repo) | Mindestversion für KC 26.4+ ist PG 13        |
-| Java         | OpenJDK 21 (Adoptium Temurin) | Adoptium statt Ubuntu-Paket – besser getestet mit Quarkus |
+| Java         | OpenJDK 21 (Adoptium Temurin) | Adoptium statt Debian-Paket – besser getestet mit Quarkus |
 | Nginx        | Aktuell (offizielles Repo)  | TLS-Terminierung + Reverse Proxy             |
 | Certbot      | Aktuell                     | Let's Encrypt ACME, Auto-Renewal via systemd-Timer (apt-daily-upgrade.timer) |
-| OS           | Ubuntu 24.04 LTS            | Auf allen 4 VMs                              |
+| OS           | Debian 13 (Trixie)        | Auf allen 4 VMs                              |
 
 ## Architektur
 
@@ -114,7 +114,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **Let's Encrypt Staging:** Beim Testen immer `--staging` nutzen. Produktiv-Rate-Limit: max 5 Zertifikate pro Domain pro Woche.
 - **PostgreSQL Auth:** `scram-sha-256` bevorzugen statt `md5` in pg_hba.conf.
 - **Keycloak Download:** SHA512-Checksum gegen `https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz.sha512` verifizieren.
-- **Nginx aus offiziellem Repo:** Das Ubuntu-Paket ist oft zu alt. Keyring von `nginx.org/keys/nginx_signing.key` einrichten + Pin-Priority 901 via `/etc/apt/preferences.d/99nginx`, damit nginx.org Vorrang hat.
+- **Nginx aus offiziellem Repo:** Das Debian-Paket ist oft zu alt. Keyring von `nginx.org/keys/nginx_signing.key` einrichten + Pin-Priority 901 via `/etc/apt/preferences.d/99nginx`, damit nginx.org Vorrang hat.
 - **WebSocket-Support Nginx:** Admin-Console nutzt WebSocket-Verbindungen. `proxy_set_header Connection ""` allein bricht WS ab. Zwingend einen `map $http_upgrade $connection_upgrade`-Block einsetzen und `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade;` verwenden.
 - **proxy_read_timeout für WebSocket:** 60s ist zu kurz – idle WS-Verbindungen der Admin-Console werden getrennt → UI-Fehler. Wert: 3600s.
 - **KC_HTTPS_PORT nicht verwenden:** TLS terminiert am Nginx, Keycloak hört ausschließlich HTTP. `KC_HTTPS_PORT` existiert nicht in `.env.example` und soll auch nicht hinzugefügt werden.
