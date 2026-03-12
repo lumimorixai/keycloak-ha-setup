@@ -9,8 +9,9 @@
 #   1. PGDG-Repository und Signaturschlüssel einrichten
 #   2. PostgreSQL 16 installieren
 #   3. Service aktivieren und starten
-#   4. DB-User und Datenbank für Keycloak anlegen
-#   5. pg_hba.conf aus Template deployen, bei Änderung reloaden
+#   4. listen_addresses auf DB_HOST setzen, bei Änderung neustarten
+#   5. DB-User und Datenbank für Keycloak anlegen
+#   6. pg_hba.conf aus Template deployen, bei Änderung reloaden
 # ==============================================================================
 
 set -euo pipefail
@@ -89,10 +90,34 @@ log_info "--- Schritt 3/5: PostgreSQL-Service aktivieren ---"
 ensure_service "${PG_SERVICE}"
 
 # ==============================================================================
-# Schritt 4/5: Keycloak DB-User und Datenbank anlegen (idempotent)
+# Schritt 4/6: listen_addresses auf DB_HOST setzen (idempotent)
+# ==============================================================================
+# PostgreSQL lauscht standardmäßig nur auf 127.0.0.1. Damit Keycloak-Nodes
+# von außen verbinden können, muss DB_HOST als zusätzliche Adresse eingetragen
+# werden. ALTER SYSTEM schreibt in postgresql.auto.conf (Vorrang vor postgresql.conf).
+# Änderung erfordert Restart (kein Reload).
+
+log_info "--- Schritt 4/6: listen_addresses konfigurieren ---"
+
+current_listen="$(sudo -u postgres psql -Atc \
+    "SELECT setting FROM pg_settings WHERE name = 'listen_addresses'" 2>/dev/null || true)"
+desired_listen="${DB_HOST},127.0.0.1"
+
+if [[ "${current_listen}" == "${desired_listen}" ]]; then
+    log_info "listen_addresses bereits korrekt: ${current_listen}"
+else
+    sudo -u postgres psql -c \
+        "ALTER SYSTEM SET listen_addresses TO '${desired_listen}';"
+    log_info "listen_addresses gesetzt: ${desired_listen} – PostgreSQL wird neugestartet."
+    systemctl restart "${PG_SERVICE}"
+    log_info "PostgreSQL neugestartet."
+fi
+
+# ==============================================================================
+# Schritt 5/6: Keycloak DB-User und Datenbank anlegen (idempotent)
 # ==============================================================================
 
-log_info "--- Schritt 4/5: DB-User '${DB_USER}' und Datenbank '${DB_NAME}' anlegen ---"
+log_info "--- Schritt 5/6: DB-User '${DB_USER}' und Datenbank '${DB_NAME}' anlegen ---"
 
 # DB-User anlegen: prüfen ob rolname bereits existiert
 user_exists="$(sudo -u postgres psql -Atc \
@@ -120,10 +145,10 @@ else
 fi
 
 # ==============================================================================
-# Schritt 5/5: pg_hba.conf deployen (idempotent, Reload nur bei Änderung)
+# Schritt 6/6: pg_hba.conf deployen (idempotent, Reload nur bei Änderung)
 # ==============================================================================
 
-log_info "--- Schritt 5/5: pg_hba.conf aus Template deployen ---"
+log_info "--- Schritt 6/6: pg_hba.conf aus Template deployen ---"
 
 if [[ ! -f "${PG_HBA_TPL}" ]]; then
     log_err "Template nicht gefunden: ${PG_HBA_TPL}"
@@ -154,6 +179,7 @@ fi
 # ==============================================================================
 
 log_info "=== PostgreSQL ${PG_VERSION} Setup abgeschlossen ==="
+log_info "listen_addresses: ${desired_listen}"
 log_info "DB-Host:     ${DB_HOST}:5432"
 log_info "Datenbank:   ${DB_NAME}"
 log_info "DB-User:     ${DB_USER}"
