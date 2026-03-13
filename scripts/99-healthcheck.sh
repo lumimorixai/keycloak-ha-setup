@@ -113,7 +113,9 @@ section "Keycloak /health/ready (direkt)"
 
 for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
     url="http://${node_ip}:${KC_MGMT_PORT}/health/ready"
-    http_code="$(curl -sf --max-time "${HTTP_TIMEOUT}" \
+    # Kein -f: curl soll auch bei 4xx/5xx den HTTP-Code liefern.
+    # || echo "000" greift nur bei echtem Verbindungsfehler (Timeout, DNS).
+    http_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
         -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || echo "000")"
 
     label="Node ${node_ip}:${KC_MGMT_PORT} /health/ready"
@@ -130,20 +132,23 @@ done
 
 section "HTTPS via Load Balancer"
 
-lb_url="https://${KC_DOMAIN}/health/ready"
-lb_code="$(curl -sf --max-time "${HTTP_TIMEOUT}" \
+# /health/ready existiert nur auf Port 9000 (Management), nicht auf 8080.
+# Über den LB (Port 443 → 8080) prüfen wir daher /realms/master als
+# zuverlässigen Keycloak-Endpunkt (200 = KC läuft und ist erreichbar).
+lb_url="https://${KC_DOMAIN}/realms/master"
+lb_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
     -o /dev/null -w '%{http_code}' "${lb_url}" 2>/dev/null || echo "000")"
 
 if [[ "${lb_code}" == "200" ]]; then
-    check_ok "HTTPS ${KC_DOMAIN} /health/ready" "HTTP ${lb_code}"
+    check_ok "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${lb_code}"
 else
-    check_fail "HTTPS ${KC_DOMAIN} /health/ready" "HTTP ${lb_code} (erwartet: 200)"
+    check_fail "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${lb_code} (erwartet: 200)"
 fi
 
 # HTTP→HTTPS Redirect
-redirect_code="$(curl -sf --max-time "${HTTP_TIMEOUT}" \
+redirect_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
     -o /dev/null -w '%{http_code}' \
-    "http://${KC_DOMAIN}/health/ready" 2>/dev/null || echo "000")"
+    "http://${KC_DOMAIN}/" 2>/dev/null || echo "000")"
 
 if [[ "${redirect_code}" == "301" ]]; then
     check_ok "HTTP→HTTPS Redirect" "HTTP ${redirect_code}"
@@ -241,7 +246,10 @@ else
         check_warn "${label}" \
             "TCP-Port erreichbar (pg_isready nicht installiert – kein Auth-Check)"
     else
-        check_fail "${label}" "TCP-Port nicht erreichbar (pg_isready nicht installiert)"
+        # TCP nicht erreichbar kann an UFW liegen (lb01 darf db01:5432 nicht erreichen – korrekt).
+        # Nur von einem KC-Node aus ist dieser Check aussagekräftig.
+        check_warn "${label}" \
+            "TCP-Port nicht erreichbar – erwartet wenn Skript von lb01 läuft (UFW erlaubt nur KC-Nodes)"
     fi
 fi
 
