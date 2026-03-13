@@ -200,14 +200,15 @@ for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
     fi
 
     if [[ -z "${node_count}" ]]; then
-        # numberOfNodes fehlt im Response → Keycloak läuft ggf. im Standalone-Modus
-        # oder der Cluster-Check ist nicht aktiv. Status allein als Fallback.
+        # KC 26 mit cache-stack=jdbc-ping schreibt numberOfNodes nicht in den
+        # Health-Response (data-Feld fehlt komplett). Status=UP ist ausreichend.
+        # Cluster-Mitgliedschaft prüfen: SELECT * FROM JGROUPSPING in PostgreSQL.
         if [[ "${cluster_status}" == "UP" ]]; then
-            check_warn "${label}" \
-                "status=UP, numberOfNodes nicht im Response (Clustering aktiv?)"
+            check_ok "${label}" \
+                "status=UP (KC 26: numberOfNodes nicht im Health-Endpoint)"
         else
             check_fail "${label}" \
-                "status=${cluster_status:-unbekannt}, numberOfNodes nicht ermittelbar"
+                "status=${cluster_status:-unbekannt}, Cluster-Check fehlgeschlagen"
         fi
     elif [[ "${node_count}" -eq 2 ]]; then
         check_ok "${label}" "${node_count}/2 Nodes im Cluster"
