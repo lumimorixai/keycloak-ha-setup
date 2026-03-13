@@ -202,7 +202,10 @@ for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
     if [[ -z "${node_count}" ]]; then
         # KC 26 mit cache-stack=jdbc-ping schreibt numberOfNodes nicht in den
         # Health-Response (data-Feld fehlt komplett). Status=UP ist ausreichend.
-        # Cluster-Mitgliedschaft prüfen: SELECT * FROM jgroups_ping in PostgreSQL.
+        # Cluster-Mitgliedschaft prüfen (auf db01):
+        #   sudo -u postgres psql -d <DB_NAME> -c \
+        #     "SELECT name, ip, coord FROM jgroups_ping;"
+        # 2 Zeilen = beide Nodes im Cluster.
         if [[ "${cluster_status}" == "UP" ]]; then
             check_ok "${label}" \
                 "status=UP (KC 26: numberOfNodes nicht im Health-Endpoint)"
