@@ -114,9 +114,9 @@ section "Keycloak /health/ready (direkt)"
 for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
     url="http://${node_ip}:${KC_MGMT_PORT}/health/ready"
     # Kein -f: curl soll auch bei 4xx/5xx den HTTP-Code liefern.
-    # || echo "000" greift nur bei echtem Verbindungsfehler (Timeout, DNS).
+    # Bei Verbindungsfehler (Timeout, DNS) gibt curl "" zurück → leerer http_code.
     http_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
-        -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || echo "000")"
+        -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null)"
 
     label="Node ${node_ip}:${KC_MGMT_PORT} /health/ready"
     if [[ "${http_code}" == "200" ]]; then
@@ -137,7 +137,7 @@ section "HTTPS via Load Balancer"
 # zuverlässigen Keycloak-Endpunkt (200 = KC läuft und ist erreichbar).
 lb_url="https://${KC_DOMAIN}/realms/master"
 lb_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
-    -o /dev/null -w '%{http_code}' "${lb_url}" 2>/dev/null || echo "000")"
+    -o /dev/null -w '%{http_code}' "${lb_url}" 2>/dev/null)"
 
 if [[ "${lb_code}" == "200" ]]; then
     check_ok "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${lb_code}"
@@ -148,7 +148,7 @@ fi
 # HTTP→HTTPS Redirect
 redirect_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
     -o /dev/null -w '%{http_code}' \
-    "http://${KC_DOMAIN}/" 2>/dev/null || echo "000")"
+    "http://${KC_DOMAIN}/" 2>/dev/null)"
 
 if [[ "${redirect_code}" == "301" ]]; then
     check_ok "HTTP→HTTPS Redirect" "HTTP ${redirect_code}"
@@ -166,7 +166,7 @@ for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
     url="http://${node_ip}:${KC_MGMT_PORT}/health"
     label="Cluster-Nodes aus Sicht von ${node_ip}"
 
-    response="$(curl -sf --max-time "${HTTP_TIMEOUT}" "${url}" 2>/dev/null || echo "")"
+    response="$(curl -s --max-time "${HTTP_TIMEOUT}" "${url}" 2>/dev/null || true)"
 
     if [[ -z "${response}" ]]; then
         check_fail "${label}" "Keine Antwort von ${url}"
