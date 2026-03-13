@@ -335,7 +335,10 @@ tmp_uu="$(mktemp)"
 cat > "${tmp_uu}" <<'EOF'
 // Keycloak HA – generiert von 04-harden.sh
 // Nur Security-Updates automatisch einspielen.
-Unattended-Upgrade::Allowed-Origins {
+// Origins-Pattern unterstützt das origin=... Format (Debian 10+).
+// Allowed-Origins nutzt das ältere "distro_id:codename"-Format und wird hier
+// explizit leer gelassen, damit keine Konflikte entstehen.
+Unattended-Upgrade::Origins-Pattern {
     "origin=Debian,codename=${distro_codename},label=Debian-Security";
     "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
 };
