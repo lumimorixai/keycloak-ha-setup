@@ -128,6 +128,13 @@ case "${vm_role}" in
             comment "Keycloak Management von lb01"
         log_info "Keycloak Management-Port erlaubt von lb01 (${LB_HOST}:${KC_MGMT_PORT})"
 
+        # Management-Port auch zwischen KC-Nodes erlauben (Healthcheck-Skript kann von kc01/kc02 laufen)
+        for peer_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
+            ufw allow from "${peer_ip}" to any port "${KC_MGMT_PORT}" proto tcp \
+                comment "Keycloak Management von KC-Node ${peer_ip}"
+            log_info "Keycloak Management-Port erlaubt von KC-Node (${peer_ip}:${KC_MGMT_PORT})"
+        done
+
         # JGroups TCP zwischen kc01 und kc02 (bidirektional).
         # Beide IPs bekommen die Regel – kein separates Skript pro Node nötig.
         for peer_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
