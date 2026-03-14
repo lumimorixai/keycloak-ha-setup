@@ -64,8 +64,11 @@ ssh kc01  "sudo /opt/keycloak-ha-setup/scripts/04-harden.sh keycloak"
 ssh kc02  "sudo /opt/keycloak-ha-setup/scripts/04-harden.sh keycloak"
 ssh lb01  "sudo /opt/keycloak-ha-setup/scripts/04-harden.sh lb"
 
-# 4. Validierung
-scripts/99-healthcheck.sh
+# 4. Validierung (auf jeder VM mit passender Rolle)
+ssh db01  "sudo /opt/keycloak-ha-setup/scripts/99-healthcheck.sh db"
+ssh kc01  "sudo /opt/keycloak-ha-setup/scripts/99-healthcheck.sh keycloak"
+ssh kc02  "sudo /opt/keycloak-ha-setup/scripts/99-healthcheck.sh keycloak"
+ssh lb01  "sudo /opt/keycloak-ha-setup/scripts/99-healthcheck.sh lb"
 ```
 
 ## Schritt-für-Schritt
@@ -177,11 +180,14 @@ Richtet ein:
 ### Schritt 5: Validierung
 
 ```bash
-scripts/99-healthcheck.sh
+# Auf jeder VM mit passender Rolle ausführen:
+sudo scripts/99-healthcheck.sh db       # auf db01
+sudo scripts/99-healthcheck.sh keycloak # auf kc01/kc02
+sudo scripts/99-healthcheck.sh lb       # auf lb01
 ```
 
-Prüft: Keycloak `/health/ready` auf beiden Nodes, HTTPS via lb01,
-Cluster-Membership (2 Nodes), pg_isready, TLS-Zertifikat-Gültigkeit.
+Prüft je nach Rolle: PostgreSQL-Verbindungen (db), Keycloak Health + JGroups + DB (keycloak),
+Nginx + HTTPS + TLS + KC-Nodes (lb).
 
 Ausgabe als farbige Zusammenfassung. Exit-Code 0 = alles OK.
 

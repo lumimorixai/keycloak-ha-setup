@@ -31,7 +31,7 @@ Richtet PostgreSQL 16 ein, legt DB-User und Datenbank an, deployt `pg_hba.conf`.
 sudo scripts/02-setup-keycloak.sh
 
 # Warten bis kc01 ready:
-until curl -sf http://<KC_NODE1_IP>:8080/health/ready; do sleep 5; done
+until curl -sf http://<KC_NODE1_IP>:9000/health/ready; do sleep 5; done
 
 # Auf kc02:
 sudo scripts/02-setup-keycloak.sh

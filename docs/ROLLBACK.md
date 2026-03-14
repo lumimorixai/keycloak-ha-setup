@@ -29,7 +29,7 @@ cp /opt/keycloak/conf/keycloak.conf.bak.YYYYMMDD-HHMMSS \
 sudo -u keycloak /opt/keycloak/bin/kc.sh build
 
 systemctl start keycloak
-curl -sf "http://localhost:8080/health/ready"
+curl -sf "http://localhost:9000/health/ready"
 ```
 
 ### Version zurücksetzen
@@ -52,7 +52,7 @@ sudo -u keycloak /opt/keycloak/bin/kc.sh build
 
 # kc01 zuerst starten
 systemctl start keycloak
-until curl -sf "http://localhost:8080/health/ready"; do sleep 5; done
+until curl -sf "http://localhost:9000/health/ready"; do sleep 5; done
 
 # Dann kc02 starten (auf kc02 ausführen)
 systemctl start keycloak
@@ -104,7 +104,7 @@ zcat /backup/keycloak-YYYYMMDD-HHMMSS.sql.gz \
 # kc01 zuerst starten, dann kc02
 # (auf kc01):
 systemctl start keycloak
-until curl -sf "http://localhost:8080/health/ready"; do sleep 5; done
+until curl -sf "http://localhost:9000/health/ready"; do sleep 5; done
 # (auf kc02):
 systemctl start keycloak
 ```
@@ -234,7 +234,7 @@ rm -rf /var/lib/postgresql/16
 # === lb01 ===
 systemctl stop nginx
 apt-get purge --autoremove nginx
-rm -f /etc/nginx/sites-available/keycloak.conf
+rm -f /etc/nginx/conf.d/keycloak.conf
 # TLS-Zertifikate bleiben erhalten (Certbot-Limit beachten)
 # Dann: sudo scripts/03-setup-nginx.sh
 ```
@@ -253,7 +253,7 @@ ssh kc02 "sudo systemctl stop keycloak"
 
 # kc01 zuerst starten (übernimmt DB als autoritativen Zustand)
 ssh kc01 "sudo systemctl start keycloak"
-until curl -sf "http://${KC_NODE1_IP}:8080/health/ready"; do sleep 5; done
+until curl -sf "http://${KC_NODE1_IP}:9000/health/ready"; do sleep 5; done
 
 # Dann kc02 starten (verbindet sich mit kc01 über JGroups TCP :7800)
 ssh kc02 "sudo systemctl start keycloak"

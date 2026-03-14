@@ -7,7 +7,7 @@
 #
 # Was dieses Skript tut (alle Schritte idempotent):
 #   1. Adoptium-Repository einrichten und Temurin JDK 21 installieren
-#   2. Keycloak-Tarball herunterladen und SHA512 verifizieren
+#   2. Keycloak-Tarball herunterladen und SHA1 verifizieren
 #   3. Archiv entpacken, Symlink /opt/keycloak setzen
 #   4. System-User 'keycloak' anlegen
 #   5. keycloak.conf aus Template deployen
@@ -122,7 +122,7 @@ JAVA_HOME_PATH="$(dirname "$(dirname "${java_bin}")")"
 log_info "JAVA_HOME erkannt: ${JAVA_HOME_PATH}"
 
 # ==============================================================================
-# Schritt 3/9: Keycloak herunterladen und SHA512 verifizieren
+# Schritt 3/9: Keycloak herunterladen und SHA1 verifizieren
 # ==============================================================================
 
 log_info "--- Schritt 3/9: Keycloak ${KC_VERSION} herunterladen ---"

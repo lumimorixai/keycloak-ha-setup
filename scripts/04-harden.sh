@@ -27,6 +27,11 @@
 
 set -euo pipefail
 
+# Temp-Dateien bei Exit (auch bei Fehler) aufräumen
+cleanup_tmp_files=()
+cleanup() { rm -f "${cleanup_tmp_files[@]}"; }
+trap cleanup EXIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=scripts/00-common.sh
@@ -171,7 +176,7 @@ log_info "--- Schritt 3/6: SSH-Hardening ---"
 # Überschreibt Werte aus /etc/ssh/sshd_config ohne diese zu modifizieren.
 readonly SSHD_HARDENING_CONF="/etc/ssh/sshd_config.d/99-keycloak-hardening.conf"
 
-tmp_sshd="$(mktemp)"
+tmp_sshd="$(mktemp)"; cleanup_tmp_files+=("${tmp_sshd}")
 cat > "${tmp_sshd}" <<EOF
 # Keycloak HA Hardening – generiert von 04-harden.sh
 # Nicht manuell bearbeiten; erneutes Ausführen des Skripts aktualisiert diese Datei.
@@ -240,7 +245,7 @@ log_info "--- Schritt 4/6: Fail2ban konfigurieren ---"
 
 readonly F2B_JAIL_LOCAL="/etc/fail2ban/jail.local"
 
-tmp_f2b="$(mktemp)"
+tmp_f2b="$(mktemp)"; cleanup_tmp_files+=("${tmp_f2b}")
 cat > "${tmp_f2b}" <<EOF
 # Fail2ban – generiert von 04-harden.sh
 # Nicht manuell bearbeiten; erneutes Ausführen des Skripts aktualisiert diese Datei.
@@ -311,7 +316,7 @@ log_info "--- Schritt 5/6: Unattended-Upgrades konfigurieren ---"
 
 readonly AUTO_UPGRADES_CONF="/etc/apt/apt.conf.d/20auto-upgrades"
 
-tmp_auto="$(mktemp)"
+tmp_auto="$(mktemp)"; cleanup_tmp_files+=("${tmp_auto}")
 cat > "${tmp_auto}" <<'EOF'
 // Keycloak HA – generiert von 04-harden.sh
 APT::Periodic::Update-Package-Lists "1";
@@ -338,7 +343,7 @@ fi
 
 readonly UNATTENDED_UPGRADES_CONF="/etc/apt/apt.conf.d/50unattended-upgrades"
 
-tmp_uu="$(mktemp)"
+tmp_uu="$(mktemp)"; cleanup_tmp_files+=("${tmp_uu}")
 cat > "${tmp_uu}" <<'EOF'
 // Keycloak HA – generiert von 04-harden.sh
 // Nur Security-Updates automatisch einspielen.

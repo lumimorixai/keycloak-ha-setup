@@ -114,7 +114,7 @@ fi
 
 # Nur die tatsächlichen Shell-Variablen substituieren – nginx-Variablen wie
 # $http_upgrade oder $connection_upgrade dürfen NICHT durch envsubst ersetzt werden.
-readonly NGINX_ENVSUBST_VARS='${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_HTTP_PORT} ${KC_MGMT_PORT}'
+readonly NGINX_ENVSUBST_VARS='${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_HTTP_PORT}'
 
 nginx_changed=0
 if [[ ! -f "${NGINX_VHOST_DST}" ]] \

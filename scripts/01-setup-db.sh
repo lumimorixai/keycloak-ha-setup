@@ -42,10 +42,10 @@ require_root
 log_info "=== PostgreSQL ${PG_VERSION} Setup startet ==="
 
 # ==============================================================================
-# Schritt 1/5: PGDG-Repository einrichten (idempotent)
+# Schritt 1/6: PGDG-Repository einrichten (idempotent)
 # ==============================================================================
 
-log_info "--- Schritt 1/5: PGDG-Repository prüfen ---"
+log_info "--- Schritt 1/6: PGDG-Repository prüfen ---"
 
 ensure_package curl gnupg
 
@@ -76,17 +76,17 @@ if [[ "${needs_apt_update}" -eq 1 ]]; then
 fi
 
 # ==============================================================================
-# Schritt 2/5: PostgreSQL 16 installieren (idempotent via ensure_package)
+# Schritt 2/6: PostgreSQL 16 installieren (idempotent via ensure_package)
 # ==============================================================================
 
-log_info "--- Schritt 2/5: PostgreSQL ${PG_VERSION} installieren ---"
+log_info "--- Schritt 2/6: PostgreSQL ${PG_VERSION} installieren ---"
 ensure_package "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}"
 
 # ==============================================================================
-# Schritt 3/5: Service aktivieren und starten (idempotent)
+# Schritt 3/6: Service aktivieren und starten (idempotent)
 # ==============================================================================
 
-log_info "--- Schritt 3/5: PostgreSQL-Service aktivieren ---"
+log_info "--- Schritt 3/6: PostgreSQL-Service aktivieren ---"
 ensure_service "${PG_SERVICE}"
 
 # ==============================================================================
@@ -126,9 +126,11 @@ user_exists="$(sudo -u postgres psql -Atc \
 if [[ "${user_exists}" == "1" ]]; then
     log_info "DB-User bereits vorhanden: ${DB_USER}"
 else
-    # Passwort über stdin übergeben, um es nicht in der Prozessliste zu exponieren
-    sudo -u postgres psql -c \
-        "CREATE ROLE \"${DB_USER}\" WITH LOGIN PASSWORD '${DB_PASSWORD}';"
+    # Passwort via \set-Variable übergeben, um SQL-Injection bei Sonderzeichen zu vermeiden
+    sudo -u postgres psql \
+        --set=db_user="${DB_USER}" \
+        --set=db_password="${DB_PASSWORD}" \
+        -c "CREATE ROLE :\"db_user\" WITH LOGIN PASSWORD :'db_password';"
     log_info "DB-User angelegt: ${DB_USER}"
 fi
 

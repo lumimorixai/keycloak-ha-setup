@@ -24,7 +24,7 @@ ssh kc02 "sudo systemctl stop keycloak"
 ssh kc01 "sudo scripts/02-setup-keycloak.sh"
 
 # 3. kc01 warten bis ready
-until curl -sf http://<KC_NODE1_IP>:8080/health/ready; do
+until curl -sf http://<KC_NODE1_IP>:9000/health/ready; do
     echo "Warte auf kc01..."; sleep 10
 done
 echo "kc01 ist ready"
@@ -72,7 +72,7 @@ sudo scripts/01-setup-db.sh
 
 # 6. Keycloak-Nodes wieder starten (kc01 zuerst)
 ssh kc01 "sudo systemctl start keycloak"
-until curl -sf http://<KC_NODE1_IP>:8080/health/ready; do sleep 5; done
+until curl -sf http://<KC_NODE1_IP>:9000/health/ready; do sleep 5; done
 ssh kc02 "sudo systemctl start keycloak"
 ```
 
