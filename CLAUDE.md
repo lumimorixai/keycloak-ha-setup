@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Reproduzierbares HA-Keycloak-Setup via idempotenter Shell-Skripte für 4 Debian 13 (Trixie) VMs.
+Reproduzierbares HA-Keycloak-Setup via idempotenter Shell-Skripte für 5 Debian 13 (Trixie) VMs (4 Kern + 1 Monitoring).
 Der vollständige Architektur- und Umsetzungsplan liegt in `docs/PLAN.md`.
 
 ## Stack
@@ -14,19 +14,24 @@ Der vollständige Architektur- und Umsetzungsplan liegt in `docs/PLAN.md`.
 | Java         | OpenJDK 21 (Adoptium Temurin) | Adoptium statt Debian-Paket – besser getestet mit Quarkus |
 | Nginx        | Aktuell (offizielles Repo)  | TLS-Terminierung + Reverse Proxy             |
 | Certbot      | Aktuell                     | Let's Encrypt ACME, Auto-Renewal via systemd-Timer (apt-daily-upgrade.timer) |
-| OS           | Debian 13 (Trixie)        | Auf allen 4 VMs                              |
+| Prometheus   | Aktuell (Debian-Paket)    | Scraping + Alert-Rules auf mon01              |
+| Grafana      | Aktuell (offizielles Repo)| Dashboards auf mon01                          |
+| OS           | Debian 13 (Trixie)        | Auf allen 5 VMs                               |
 
 ## Architektur
 
 ```
 Internet → lb01 (Nginx + TLS :443)
-              ├── kc01 (Keycloak :8080)
-              └── kc02 (Keycloak :8080)
+              ├── kc01 (Keycloak :8080, Metrics :9000)
+              └── kc02 (Keycloak :8080, Metrics :9000)
                     beide → db01 (PostgreSQL :5432)
            kc01 ↔ kc02 (JGroups TCP :7800)
+
+mon01 (Prometheus :9090, Grafana :3000, Alertmanager :9093)
+  └── scrapes: kc*:9000, alle:9100, db01:9187, lb01:9113
 ```
 
-- **4 VMs:** db01 (PostgreSQL), kc01 + kc02 (Keycloak HA), lb01 (Nginx + Certbot)
+- **5 VMs:** db01 (PostgreSQL), kc01 + kc02 (Keycloak HA), lb01 (Nginx + Certbot), mon01 (Monitoring)
 - **Cluster-Discovery:** JDBC_PING2 über gemeinsame PostgreSQL-DB (kein Multicast)
 - **Cluster-Traffic:** JGroups TCP auf Port 7800 direkt zwischen kc01 ↔ kc02
 - **TLS-Terminierung:** Am Nginx. Keycloak hört nur HTTP, nutzt `proxy-headers=xforwarded`
@@ -45,12 +50,19 @@ keycloak-ha-setup/
 │   ├── 01-setup-db.sh          # PostgreSQL – Ausführung auf db01
 │   ├── 02-setup-keycloak.sh    # JDK + Keycloak – Ausführung auf kc01 und kc02
 │   ├── 03-setup-nginx.sh       # Nginx + Certbot – Ausführung auf lb01
-│   ├── 04-harden.sh            # UFW + SSH + Fail2ban + Unattended-Upgrades – Pflichtparameter: db|keycloak|lb
-│   └── 99-healthcheck.sh       # Validierung – Pflichtparameter: lb|keycloak|db
+│   ├── 04-harden.sh            # UFW + SSH + Fail2ban + Unattended-Upgrades – Pflichtparameter: db|keycloak|lb|mon
+│   ├── 05-setup-monitoring.sh  # Exporter auf Ziel-VMs – Pflichtparameter: db|keycloak|lb
+│   ├── 06-setup-mon-vm.sh      # Prometheus + Grafana + Alertmanager – Ausführung auf mon01
+│   └── 99-healthcheck.sh       # Validierung – Pflichtparameter: lb|keycloak|db|mon
 ├── configs/
 │   ├── keycloak/
 │   │   ├── keycloak.conf.tpl   # Keycloak-Server-Config (Template)
 │   │   └── keycloak.service    # systemd Unit-File
+│   ├── monitoring/
+│   │   ├── prometheus.yml.tpl  # Prometheus Scrape-Config (Template)
+│   │   ├── alertmanager.yml.tpl # Alertmanager Routing (Template)
+│   │   ├── alert-rules.yml     # Prometheus Alert-Rules (statisch)
+│   │   └── grafana-datasource.yml # Grafana Datasource Auto-Provisioning
 │   ├── nginx/
 │   │   └── keycloak.conf.tpl   # Nginx vHost (Template)
 │   └── postgresql/
@@ -58,6 +70,8 @@ keycloak-ha-setup/
 └── docs/
     ├── PLAN.md                 # Detaillierter Umsetzungsplan mit Config-Spezifikationen
     ├── ARCHITECTURE.md
+    ├── DEV-SETUP.md            # 2-Node DEV-Umgebung Anleitung
+    ├── MONITORING.md           # Monitoring-Konzept (KPIs, Dashboards, Alerting)
     ├── ROLLBACK.md
     └── UPGRADE.md
 ```
@@ -121,8 +135,14 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **proxy_read_timeout für WebSocket:** 60s ist zu kurz – idle WS-Verbindungen der Admin-Console werden getrennt → UI-Fehler. Wert: 3600s.
 - **KC_HTTPS_PORT nicht verwenden:** TLS terminiert am Nginx, Keycloak hört ausschließlich HTTP. `KC_HTTPS_PORT` existiert nicht in `.env.example` und soll auch nicht hinzugefügt werden.
 - **Management-Port 9000:** Seit Keycloak 25+ laufen `/health/ready` und `/metrics` auf Port 9000 (Management-Interface), NICHT auf Port 8080. `curl http://<node>:9000/health/ready` für Health-Checks verwenden. Port 9000 muss in UFW für lb01 freigegeben sein.
-- **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
-- **99-healthcheck.sh Pflichtparameter:** Analog zu 04-harden.sh akzeptiert das Skript `lb|keycloak|db` als `$1`. Jede Rolle prüft nur die für sie relevanten Checks: `lb` = nginx + KC-Nodes + HTTPS + TLS; `keycloak` = lokal + Peer + JGroups + DB; `db` = PostgreSQL + Verbindungen + jgroups_ping-Tabelle.
+- **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb|mon` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
+- **99-healthcheck.sh Pflichtparameter:** Analog zu 04-harden.sh akzeptiert das Skript `lb|keycloak|db|mon` als `$1`. Jede Rolle prüft nur die für sie relevanten Checks: `lb` = nginx + KC-Nodes + HTTPS + TLS; `keycloak` = lokal + Peer + JGroups + DB; `db` = PostgreSQL + Verbindungen + jgroups_ping-Tabelle; `mon` = Prometheus + Grafana + Alertmanager + Scrape-Targets.
+- **MON_HOST ist optional:** Die Variable steht in `.env.example`, aber NICHT in `required_vars` in `00-common.sh` – leerer Wert bedeutet keine Monitoring-Firewall-Regeln. Nie als Pflichtfeld hinzufügen.
+- **05-setup-monitoring.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. Installiert node_exporter (alle Rollen) plus rollenspezifische Exporter: postgres_exporter (db), nginx-prometheus-exporter (lb).
+- **Keycloak Metrics aktiviert:** `metrics-enabled=true` in keycloak.conf.tpl. Metriken sind auf Port 9000 `/metrics` verfügbar (Micrometer/Prometheus-Format).
+- **Nginx stub_status:** In der nginx-Config als `/nginx_status` Location (nur localhost). Wird vom nginx-prometheus-exporter gescraped.
+- **Alert-Rules statisch:** `configs/monitoring/alert-rules.yml` ist KEIN Template – enthält Go-Template-Syntax (`{{ $labels.instance }}`), die envsubst zerstören würde. Wird direkt kopiert, nicht via deploy_config.
+- **Grafana aus offiziellem Repo:** Das Debian-Paket existiert nicht. Keyring von `apt.grafana.com/gpg.key` einrichten.
 - **UFW ist nativ idempotent:** `ufw allow` fügt dieselbe Regel nicht doppelt ein. Pre-Checks via `ufw status | grep ...` sind fehleranfällig (Formatabhängig) und unnötig.
 - **grep -q in Pipes:** `grep -qF "${var}" | grep -q "${port}"` ist kaputt – `-q` unterdrückt stdout, der zweite grep prüft gegen leeren Stream. Stattdessen: `ufw allow` direkt aufrufen oder Prüfung ohne Pipe.
 - **Template-Variablen grep:** Pattern `[A-Z_]+` erfasst keine Ziffern – `KC_NODE1_IP` wird nicht gefunden. Korrektes Pattern: `[A-Z0-9_]+`.
@@ -140,6 +160,12 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 | lb01  | kc*   | 9000 | Health-Check (Management)    |
 | kc*   | db01  | 5432 | PostgreSQL                   |
 | kc01  | kc02  | 7800 | JGroups TCP (bidirektional)  |
+| mon01 | kc*   | 9000 | Keycloak-Metriken scrapen    |
+| mon01 | alle  | 9100 | node_exporter scrapen        |
+| mon01 | db01  | 9187 | postgres_exporter scrapen    |
+| mon01 | lb01  | 9113 | nginx-exporter scrapen       |
+| Admin | mon01 | 3000 | Grafana UI                   |
+| Admin | mon01 | 9090 | Prometheus UI (optional)     |
 
 ## Validierung nach Code-Generierung
 

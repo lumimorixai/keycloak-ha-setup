@@ -1,0 +1,19 @@
+# ==============================================================================
+# Grafana – Prometheus Datasource Auto-Provisioning
+#
+# Deployed via 06-setup-mon-vm.sh → /etc/grafana/provisioning/datasources/prometheus.yml
+# Statische Datei (kein Template).
+#
+# Grafana liest dieses Verzeichnis beim Start und richtet die Datasource
+# automatisch ein – kein manuelles Setup im UI nötig.
+# ==============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://localhost:9090
+    access: proxy
+    isDefault: true
+    editable: false

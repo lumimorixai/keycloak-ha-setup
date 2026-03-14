@@ -115,6 +115,51 @@ systemctl reload nginx
 
 Certbot konfiguriert den Nginx-Reload-Hook automatisch.
 
+## Monitoring-Komponenten upgraden
+
+### Prometheus / Alertmanager / Grafana (Debian-Pakete)
+
+```bash
+# Auf mon01:
+apt-get update && apt-get upgrade prometheus prometheus-alertmanager grafana
+
+# Configs prüfen und Services neu laden
+promtool check config /etc/prometheus/prometheus.yml
+systemctl reload prometheus
+systemctl restart grafana-server
+```
+
+### postgres_exporter upgraden (db01)
+
+Die Version ist in `05-setup-monitoring.sh` als `PG_EXPORTER_VERSION` definiert.
+
+```bash
+# Version in scripts/05-setup-monitoring.sh anpassen, dann:
+sudo scripts/05-setup-monitoring.sh db
+```
+
+Das Skript erkennt die Versionsänderung, lädt die neue Binary herunter und
+startet den Service neu.
+
+### nginx-prometheus-exporter upgraden (lb01)
+
+Analog zu postgres_exporter: `NGINX_EXPORTER_VERSION` in
+`05-setup-monitoring.sh` anpassen und erneut ausführen.
+
+```bash
+sudo scripts/05-setup-monitoring.sh lb
+```
+
+### node_exporter upgraden (alle VMs)
+
+node_exporter wird als Debian-Paket (`prometheus-node-exporter`) installiert:
+
+```bash
+apt-get update && apt-get upgrade prometheus-node-exporter
+```
+
+---
+
 ## OS-Updates (Debian)
 
 ```bash

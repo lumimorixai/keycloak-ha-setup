@@ -2,11 +2,11 @@
 
 ## Übersicht
 
-Dieses Dokument beschreibt den vollständigen Deployment-Ablauf für das Keycloak HA-Setup auf 4 Debian 13 (Trixie) VMs. Alle Schritte sind idempotent – ein erneutes Ausführen ist sicher.
+Dieses Dokument beschreibt den vollständigen Deployment-Ablauf für das Keycloak HA-Setup auf 5 Debian 13 (Trixie) VMs (4 Kern-VMs + 1 Monitoring-VM). Alle Schritte sind idempotent – ein erneutes Ausführen ist sicher.
 
 ## Voraussetzungen
 
-- 4 VMs mit Debian 13 (Trixie) (db01, kc01, kc02, lb01)
+- 5 VMs mit Debian 13 (Trixie) (db01, kc01, kc02, lb01, mon01)
 - SSH-Zugang auf alle VMs (Public-Key-Auth empfohlen)
 - DNS-Eintrag für `KC_DOMAIN` zeigt auf lb01 (vor Schritt 3 erforderlich)
 - Repo geklont auf jeder VM (oder via rsync übertragen)
@@ -55,15 +55,36 @@ sudo scripts/04-harden.sh keycloak  # auf kc01 und kc02
 sudo scripts/04-harden.sh lb        # auf lb01
 ```
 
-Setzt UFW-Firewall-Regeln (rollenbasiert), SSH-Hardening und Fail2ban. Der VM-Typ ist ein Pflichtparameter.
+Setzt UFW-Firewall-Regeln (rollenbasiert), SSH-Hardening und Fail2ban. Der VM-Typ ist ein Pflichtparameter. Wenn `MON_HOST` in `.env` gesetzt ist, werden zusätzlich Monitoring-Ports freigeschaltet.
 
-### Phase 5: Validierung (von lb01 oder extern)
+### Phase 5: Monitoring (mon01 + Exporter auf allen VMs)
 
 ```bash
-scripts/99-healthcheck.sh
+# Exporter auf Ziel-VMs installieren:
+sudo scripts/05-setup-monitoring.sh db        # auf db01
+sudo scripts/05-setup-monitoring.sh keycloak  # auf kc01 und kc02
+sudo scripts/05-setup-monitoring.sh lb        # auf lb01
+
+# Monitoring-Stack auf mon01:
+sudo scripts/06-setup-mon-vm.sh               # auf mon01
+sudo scripts/04-harden.sh mon                 # auf mon01
 ```
 
-Prüft alle Endpunkte, Cluster-Status, TLS-Zertifikat und Datenbankverbindung.
+Installiert Prometheus, Grafana, Alertmanager auf mon01 sowie node_exporter (alle VMs),
+postgres_exporter (db01) und nginx-prometheus-exporter (lb01). Keycloak-Metriken sind
+built-in auf :9000 (metrics-enabled=true). Details: [MONITORING.md](MONITORING.md).
+
+### Phase 6: Validierung (auf jeder VM mit passender Rolle)
+
+```bash
+sudo scripts/99-healthcheck.sh db       # auf db01
+sudo scripts/99-healthcheck.sh keycloak # auf kc01/kc02
+sudo scripts/99-healthcheck.sh lb       # auf lb01
+sudo scripts/99-healthcheck.sh mon      # auf mon01
+```
+
+Prüft je nach Rolle: PostgreSQL-Verbindungen, Keycloak Health + Cluster, Nginx + TLS,
+Monitoring-Stack + Scrape-Targets.
 
 ## Konfigurationsspezifikationen
 
@@ -110,6 +131,12 @@ Prüft alle Endpunkte, Cluster-Status, TLS-Zertifikat und Datenbankverbindung.
 | lb01  | kc*   | 9000 | Health-Check (Management)    |
 | kc*   | db01  | 5432 | PostgreSQL                   |
 | kc01  | kc02  | 7800 | JGroups TCP (bidirektional)  |
+| mon01 | kc*   | 9000 | Keycloak-Metriken scrapen    |
+| mon01 | alle  | 9100 | node_exporter scrapen        |
+| mon01 | db01  | 9187 | postgres_exporter scrapen    |
+| mon01 | lb01  | 9113 | nginx-exporter scrapen       |
+| Admin | mon01 | 3000 | Grafana UI                   |
+| Admin | mon01 | 9090 | Prometheus UI (optional)     |
 
 ## Build-Zyklus (Keycloak)
 

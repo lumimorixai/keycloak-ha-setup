@@ -172,17 +172,139 @@ Delta zum Vortag = Netto-Veraenderung.
 
 ---
 
-## Voraussetzungen (Code-Aenderungen fuer spaetere Umsetzung)
+## Deployment auf bestehendes System
 
-Wenn das Monitoring implementiert wird, sind folgende Aenderungen noetig:
+Monitoring in ein laufendes Keycloak HA-Setup integrieren. Alle Schritte sind
+idempotent – erneutes Ausfuehren ist sicher.
 
-1. **`configs/keycloak/keycloak.conf.tpl`**: `metrics-enabled=false` -> `metrics-enabled=true`
-2. **`configs/nginx/keycloak.conf.tpl`**: `stub_status` Location fuer nginx-exporter hinzufuegen
-3. **`scripts/04-harden.sh`**: UFW-Regeln fuer Scraping-Ports (9100, 9187, 9113) von mon01
-4. **`.env.example`**: `MON_HOST` Variable fuer die Monitoring-VM-IP
-5. **Neues Skript `scripts/05-setup-monitoring.sh`**: Exporter-Installation auf allen VMs
-6. **Neues Skript `scripts/06-setup-mon-vm.sh`**: Prometheus + Grafana auf mon01
-7. **Optional: Zabbix-Relay auf mon01**: `zabbix_sender` Paket + Webhook-Relay-Skript
+**Voraussetzung:** 5. VM (mon01) mit Debian 13 bereitstellen, Repo klonen.
+
+### Phase 0: `.env` auf allen VMs aktualisieren
+
+```bash
+# Auf ALLEN VMs (.env oeffnen und ergaenzen):
+MON_HOST=<IP-von-mon01>
+```
+
+### Phase 1: Keycloak Metriken aktivieren (kc01, dann kc02)
+
+`metrics-enabled` wurde in `keycloak.conf.tpl` auf `true` geaendert. Das erfordert
+einen `kc.sh build` + Neustart. Das Setup-Skript erkennt die Config-Aenderung
+automatisch und fuehrt den Build aus.
+
+```bash
+# Auf kc01 (ZUERST – Startup-Reihenfolge beachten!):
+sudo scripts/02-setup-keycloak.sh
+
+# Warten bis kc01 ready:
+until curl -sf http://localhost:9000/health/ready; do sleep 5; done
+
+# Auf kc02:
+sudo scripts/02-setup-keycloak.sh
+```
+
+**Auswirkung:** Kurze Downtime pro Node waehrend Build+Restart (~30s).
+Bei kc01+kc02 nacheinander bleibt der Service via lb01 erreichbar.
+
+### Phase 2: Nginx stub_status aktivieren (lb01)
+
+Die nginx-Config hat jetzt eine `/nginx_status` Location fuer den Exporter.
+
+```bash
+# Auf lb01:
+sudo scripts/03-setup-nginx.sh
+```
+
+**Auswirkung:** Nginx-Reload (keine Downtime).
+
+### Phase 3: Exporter auf Ziel-VMs installieren
+
+```bash
+# Auf db01:
+sudo scripts/05-setup-monitoring.sh db
+
+# Auf kc01:
+sudo scripts/05-setup-monitoring.sh keycloak
+
+# Auf kc02:
+sudo scripts/05-setup-monitoring.sh keycloak
+
+# Auf lb01:
+sudo scripts/05-setup-monitoring.sh lb
+```
+
+Installiert pro Rolle:
+- **Alle:** `prometheus-node-exporter` (:9100)
+- **db:** `postgres_exporter` (:9187) – GitHub-Release, systemd-Unit
+- **lb:** `nginx-prometheus-exporter` (:9113) – GitHub-Release, systemd-Unit
+- **keycloak:** Keine zusaetzlichen Exporter (Metriken built-in auf :9000)
+
+### Phase 4: Firewall-Regeln fuer Monitoring (alle VMs)
+
+```bash
+# Auf db01:
+sudo scripts/04-harden.sh db
+
+# Auf kc01:
+sudo scripts/04-harden.sh keycloak
+
+# Auf kc02:
+sudo scripts/04-harden.sh keycloak
+
+# Auf lb01:
+sudo scripts/04-harden.sh lb
+```
+
+Wenn `MON_HOST` gesetzt ist, werden automatisch die Scraping-Ports
+(9100, 9187, 9113, 9000) von mon01 freigeschaltet. Bestehende Regeln
+bleiben erhalten (UFW ist idempotent).
+
+### Phase 5: Monitoring-Stack auf mon01
+
+```bash
+# Auf mon01:
+sudo scripts/06-setup-mon-vm.sh
+sudo scripts/04-harden.sh mon
+```
+
+Installiert und konfiguriert:
+- **Prometheus** (:9090) mit Scrape-Config und Alert-Rules
+- **Alertmanager** (:9093) mit Routing-Config
+- **Grafana** (:3000) mit auto-provisionierter Prometheus-Datasource
+- **node_exporter** (:9100) fuer Self-Monitoring
+
+### Phase 6: Validierung
+
+```bash
+# Auf mon01:
+scripts/99-healthcheck.sh mon
+
+# Metriken-Endpoint erreichbar?
+curl -s http://<KC_NODE1_IP>:9000/metrics | head -5
+
+# Prometheus-Targets alle UP?
+curl -s http://mon01:9090/api/v1/targets \
+  | jq '.data.activeTargets[] | {instance, health}'
+
+# Grafana erreichbar?
+curl -sf http://mon01:3000/api/health
+
+# Alert-Rules geladen?
+curl -s http://mon01:9090/api/v1/rules \
+  | jq '.data.groups[].rules[] | {name, state}'
+```
+
+### Zusammenfassung Ausfuehrungsreihenfolge
+
+```
+Phase 0:  alle VMs    → .env: MON_HOST ergaenzen
+Phase 1:  kc01 → kc02 → sudo 02-setup-keycloak.sh  (Metriken aktivieren)
+Phase 2:  lb01        → sudo 03-setup-nginx.sh      (stub_status)
+Phase 3:  db01, kc*, lb01 → sudo 05-setup-monitoring.sh <rolle>  (Exporter)
+Phase 4:  db01, kc*, lb01 → sudo 04-harden.sh <rolle>  (UFW fuer Monitoring)
+Phase 5:  mon01       → sudo 06-setup-mon-vm.sh + 04-harden.sh mon
+Phase 6:  mon01       → scripts/99-healthcheck.sh mon  (Validierung)
+```
 
 ---
 

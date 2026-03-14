@@ -11,6 +11,7 @@
 #   lb        – Load Balancer (lb01): nginx, KC-Nodes, HTTPS End-to-End, TLS
 #   keycloak  – Keycloak-Node (kc01/kc02): lokal, Peer, JGroups, DB-Verbindung
 #   db        – Datenbankserver (db01): PostgreSQL, Verbindungen, jgroups_ping
+#   mon       – Monitoring-VM (mon01): Prometheus, Grafana, Alertmanager, Exporter-Targets
 #
 # Exit-Code: 0 = alle Checks bestanden, 1 = mindestens ein FAIL
 # ==============================================================================
@@ -28,10 +29,11 @@ source "${SCRIPT_DIR}/00-common.sh"
 
 usage() {
     printf 'Verwendung: %s <vm-typ>\n' "${0}"
-    printf '  vm-typ: lb | keycloak | db\n\n'
+    printf '  vm-typ: lb | keycloak | db | mon\n\n'
     printf '  lb        – Load Balancer (lb01)\n'
     printf '  keycloak  – Keycloak-Node (kc01 oder kc02)\n'
     printf '  db        – Datenbankserver (db01)\n'
+    printf '  mon       – Monitoring-VM  (mon01)\n'
     exit 1
 }
 
@@ -43,9 +45,9 @@ fi
 vm_role="${1}"
 
 case "${vm_role}" in
-    lb|keycloak|db) ;;
+    lb|keycloak|db|mon) ;;
     *)
-        log_err "Ungültiger VM-Typ: '${vm_role}'. Erlaubt: lb, keycloak, db"
+        log_err "Ungültiger VM-Typ: '${vm_role}'. Erlaubt: lb, keycloak, db, mon"
         usage
         ;;
 esac
@@ -453,6 +455,115 @@ checks_db() {
 }
 
 # ==============================================================================
+# mon-Checks: Prometheus + Grafana + Alertmanager + Exporter-Targets
+# ==============================================================================
+
+checks_mon() {
+    # --------------------------------------------------------------------------
+    section "Monitoring-Services"
+    # --------------------------------------------------------------------------
+
+    for svc in prometheus grafana-server prometheus-alertmanager; do
+        if systemctl is-active --quiet "${svc}" 2>/dev/null; then
+            check_ok "${svc} service" "active"
+        else
+            check_fail "${svc} service" "nicht aktiv – 'systemctl status ${svc}' prüfen"
+        fi
+    done
+
+    # --------------------------------------------------------------------------
+    section "Prometheus API"
+    # --------------------------------------------------------------------------
+
+    code="$(http_get_code "http://localhost:9090/-/ready")"
+    if [[ "${code}" == "200" ]]; then
+        check_ok "Prometheus :9090 /-/ready" "HTTP ${code}"
+    else
+        check_fail "Prometheus :9090 /-/ready" "HTTP ${code:-000} (erwartet: 200)"
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Grafana API"
+    # --------------------------------------------------------------------------
+
+    code="$(http_get_code "http://localhost:3000/api/health")"
+    if [[ "${code}" == "200" ]]; then
+        check_ok "Grafana :3000 /api/health" "HTTP ${code}"
+    else
+        check_fail "Grafana :3000 /api/health" "HTTP ${code:-000} (erwartet: 200)"
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Alertmanager API"
+    # --------------------------------------------------------------------------
+
+    code="$(http_get_code "http://localhost:9093/-/ready")"
+    if [[ "${code}" == "200" ]]; then
+        check_ok "Alertmanager :9093 /-/ready" "HTTP ${code}"
+    else
+        check_fail "Alertmanager :9093 /-/ready" "HTTP ${code:-000} (erwartet: 200)"
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Prometheus Scrape-Targets"
+    # --------------------------------------------------------------------------
+
+    if command -v curl &>/dev/null; then
+        targets_json="$(curl -s --max-time "${HTTP_TIMEOUT}" \
+            'http://localhost:9090/api/v1/targets' 2>/dev/null || echo "")"
+        if [[ -n "${targets_json}" ]] && command -v jq &>/dev/null; then
+            total_targets="$(printf '%s' "${targets_json}" \
+                | jq -r '.data.activeTargets | length' 2>/dev/null || echo "0")"
+            up_targets="$(printf '%s' "${targets_json}" \
+                | jq -r '[.data.activeTargets[] | select(.health == "up")] | length' \
+                2>/dev/null || echo "0")"
+            down_targets=$(( total_targets - up_targets ))
+
+            if [[ "${down_targets}" -eq 0 ]] && [[ "${total_targets}" -gt 0 ]]; then
+                check_ok "Scrape-Targets" "${up_targets}/${total_targets} UP"
+            elif [[ "${total_targets}" -eq 0 ]]; then
+                check_warn "Scrape-Targets" "Keine Targets konfiguriert"
+            else
+                check_fail "Scrape-Targets" "${down_targets}/${total_targets} DOWN"
+                # Einzelne DOWN-Targets auflisten
+                printf '%s' "${targets_json}" \
+                    | jq -r '.data.activeTargets[]
+                        | select(.health != "up")
+                        | "\(.scrapePool) → \(.labels.instance)"' \
+                    2>/dev/null \
+                    | while IFS= read -r tgt; do
+                        check_fail "  └─ ${tgt}" "DOWN"
+                    done
+            fi
+        else
+            check_warn "Scrape-Targets" "jq nicht installiert – Detail-Check übersprungen"
+        fi
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Alert-Rules"
+    # --------------------------------------------------------------------------
+
+    rules_json="$(curl -s --max-time "${HTTP_TIMEOUT}" \
+        'http://localhost:9090/api/v1/rules' 2>/dev/null || echo "")"
+    if [[ -n "${rules_json}" ]] && command -v jq &>/dev/null; then
+        rule_count="$(printf '%s' "${rules_json}" \
+            | jq -r '[.data.groups[].rules[]] | length' 2>/dev/null || echo "0")"
+        firing_count="$(printf '%s' "${rules_json}" \
+            | jq -r '[.data.groups[].rules[] | select(.state == "firing")] | length' \
+            2>/dev/null || echo "0")"
+
+        if [[ "${rule_count}" -eq 0 ]]; then
+            check_warn "Alert-Rules" "Keine Rules geladen"
+        elif [[ "${firing_count}" -gt 0 ]]; then
+            check_warn "Alert-Rules" "${rule_count} Rules geladen, ${firing_count} firing"
+        else
+            check_ok "Alert-Rules" "${rule_count} Rules geladen, keine firing"
+        fi
+    fi
+}
+
+# ==============================================================================
 # Header
 # ==============================================================================
 
@@ -471,6 +582,7 @@ case "${vm_role}" in
     lb)       checks_lb ;;
     keycloak) checks_keycloak ;;
     db)       checks_db ;;
+    mon)      checks_mon ;;
 esac
 
 # ==============================================================================

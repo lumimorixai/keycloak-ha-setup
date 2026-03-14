@@ -82,16 +82,31 @@ sudo scripts/04-harden.sh lb
 
 ### Schritt 4: Monitoring (optional)
 
-Wenn das Monitoring implementiert ist:
+Keycloak-Metriken sind bereits aktiviert (`metrics-enabled=true` in keycloak.conf).
 
 **Auf app01:**
-- node_exporter (:9100) und postgres_exporter (:9187) installieren
-- Keycloak-Metriken aktivieren (`metrics-enabled=true` in keycloak.conf)
+
+```bash
+# Exporter installieren (node_exporter + postgres_exporter)
+sudo scripts/05-setup-monitoring.sh db
+sudo scripts/05-setup-monitoring.sh keycloak
+```
 
 **Auf lb01:**
-- Prometheus (:9090), Grafana (:3000), Alertmanager (:9093) installieren
-- nginx-prometheus-exporter (:9113) und node_exporter (:9100) installieren
-- Prometheus-Targets: app01:9000, app01:9100, app01:9187, localhost:9113, localhost:9100
+
+```bash
+# Monitoring-Stack (Prometheus + Grafana + Alertmanager)
+sudo scripts/06-setup-mon-vm.sh
+
+# Exporter installieren (node_exporter + nginx-prometheus-exporter)
+sudo scripts/05-setup-monitoring.sh lb
+
+# Firewall: Monitoring-Ports freigeben (optional, wenn MON_HOST gesetzt)
+# Im DEV-Setup läuft Monitoring auf lb01 selbst → localhost braucht kein UFW
+```
+
+Prometheus-Targets werden automatisch konfiguriert:
+app01:9000, app01:9100, app01:9187, localhost:9113, localhost:9100.
 
 Details zu KPIs, Dashboards und Alerting siehe [MONITORING.md](MONITORING.md).
 

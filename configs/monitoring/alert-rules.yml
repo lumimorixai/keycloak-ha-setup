@@ -1,0 +1,183 @@
+# ==============================================================================
+# Prometheus Alert-Rules
+#
+# Deployed via 06-setup-mon-vm.sh → /etc/prometheus/alert-rules.yml
+# Statische Datei (kein Template, keine envsubst-Variablen).
+#
+# Alerts mit Label zabbix: "true" werden via Alertmanager-Webhook an Zabbix
+# weitergeleitet (siehe docs/MONITORING.md → Optionale Zabbix-Anbindung).
+# ==============================================================================
+
+groups:
+  # ============================================================================
+  # Keycloak
+  # ============================================================================
+  - name: keycloak
+    rules:
+      - alert: KCNodeDown
+        expr: up{job="keycloak"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "Keycloak Node {{ $labels.instance }} ist ausgefallen"
+
+      - alert: LoginFehlerrateHoch
+        expr: rate(keycloak_failed_login_attempts[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hohe Login-Fehlerrate: {{ $value | humanize }}/s auf {{ $labels.instance }}"
+
+      - alert: BruteForceVerdacht
+        expr: rate(keycloak_failed_login_attempts[5m]) * 60 > 50
+        for: 2m
+        labels:
+          severity: warning
+          zabbix: "true"
+        annotations:
+          summary: "Brute-Force vermutet: {{ $value | humanize }} fehlgeschlagene Logins/min"
+
+      - alert: TokenEndpointLangsam
+        expr: |
+          histogram_quantile(0.95,
+            rate(http_server_requests_seconds_bucket{uri=~".*token.*"}[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Token-Endpoint p95 > 500ms auf {{ $labels.instance }}: {{ $value | humanize }}s"
+
+      - alert: DBConnectionPoolErschoepft
+        expr: hikaricp_connections_pending > 0
+        for: 1m
+        labels:
+          severity: warning
+          zabbix: "true"
+        annotations:
+          summary: "HikariCP Pending Connections > 0 auf {{ $labels.instance }}"
+
+      - alert: HoheGCPausen
+        expr: jvm_gc_pause_seconds_max > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GC-Pause > 500ms auf {{ $labels.instance }}: {{ $value | humanize }}s"
+
+  # ============================================================================
+  # PostgreSQL
+  # ============================================================================
+  - name: postgresql
+    rules:
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "PostgreSQL auf {{ $labels.instance }} nicht erreichbar"
+
+      - alert: DBConnectionsNahAmLimit
+        expr: |
+          pg_stat_activity_count{datname!=""}
+          / on() pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          zabbix: "true"
+        annotations:
+          summary: "DB Connections bei {{ $value | humanizePercentage }} des Limits"
+
+      - alert: DBDeadlocks
+        expr: rate(pg_stat_database_deadlocks[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deadlocks erkannt in {{ $labels.datname }}: {{ $value | humanize }}/s"
+
+  # ============================================================================
+  # Nginx
+  # ============================================================================
+  - name: nginx
+    rules:
+      - alert: NginxDown
+        expr: nginx_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "Nginx auf {{ $labels.instance }} nicht erreichbar"
+
+  # ============================================================================
+  # System (node_exporter)
+  # ============================================================================
+  - name: system
+    rules:
+      - alert: HighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU > 80% auf {{ $labels.instance }}: {{ $value | humanize }}%"
+
+      - alert: HighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAM > 90% auf {{ $labels.instance }}: {{ $value | humanize }}%"
+
+      - alert: DiskFull
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          zabbix: "true"
+        annotations:
+          summary: "Disk > 85% auf {{ $labels.instance }} ({{ $labels.mountpoint }}): {{ $value | humanize }}%"
+
+      - alert: DiskKritisch
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "Disk > 95% auf {{ $labels.instance }} ({{ $labels.mountpoint }}): {{ $value | humanize }}%"
+
+      - alert: SystemdUnitFailed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "systemd Unit {{ $labels.name }} auf {{ $labels.instance }} fehlgeschlagen"
+
+  # ============================================================================
+  # TLS-Zertifikat (via Blackbox-Exporter oder manueller Probe)
+  # ============================================================================
+  # Hinweis: Erfordert blackbox_exporter oder externen Cert-Check.
+  # Alternativ den TLS-Check in 99-healthcheck.sh nutzen.
+
+  # ============================================================================
+  # Zabbix-Eskalation (nur critical)
+  # ============================================================================
+  - name: zabbix-escalation
+    rules:
+      - alert: AlleKCNodesDown
+        expr: count(up{job="keycloak"} == 1) == 0
+        for: 1m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "Alle Keycloak-Nodes sind ausgefallen – kompletter Service-Ausfall"

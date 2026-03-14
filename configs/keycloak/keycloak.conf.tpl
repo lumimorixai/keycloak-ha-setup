@@ -45,7 +45,7 @@ cache-stack=jdbc-ping
 # (Standard: 9000), NICHT auf dem HTTP-Port (8080).
 # /health/ready erreichbar unter http://<node>:${KC_MGMT_PORT}/health/ready
 health-enabled=true
-metrics-enabled=false
+metrics-enabled=true
 http-management-port=${KC_MGMT_PORT}
 
 # --- Logging -----------------------------------------------------------------

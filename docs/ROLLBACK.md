@@ -179,7 +179,7 @@ ufw disable
 
 # Alle Regeln löschen und neu aufbauen
 ufw reset
-# vm-typ: db | keycloak | lb
+# vm-typ: db | keycloak | lb | mon
 sudo scripts/04-harden.sh <vm-typ>
 ```
 
@@ -237,6 +237,77 @@ apt-get purge --autoremove nginx
 rm -f /etc/nginx/conf.d/keycloak.conf
 # TLS-Zertifikate bleiben erhalten (Certbot-Limit beachten)
 # Dann: sudo scripts/03-setup-nginx.sh
+```
+
+---
+
+## Monitoring
+
+### Prometheus-Konfiguration zurücksetzen
+
+```bash
+# Auf mon01:
+ls /etc/prometheus/prometheus.yml.bak.*
+
+cp /etc/prometheus/prometheus.yml.bak.YYYYMMDD-HHMMSS \
+   /etc/prometheus/prometheus.yml
+
+systemctl reload prometheus
+```
+
+### Alert-Rules zurücksetzen
+
+```bash
+# Auf mon01:
+ls /etc/prometheus/alert-rules.yml.bak.*
+
+cp /etc/prometheus/alert-rules.yml.bak.YYYYMMDD-HHMMSS \
+   /etc/prometheus/alert-rules.yml
+
+systemctl reload prometheus
+```
+
+### Alertmanager-Konfiguration zurücksetzen
+
+```bash
+# Auf mon01:
+ls /etc/prometheus/alertmanager.yml.bak.*
+
+cp /etc/prometheus/alertmanager.yml.bak.YYYYMMDD-HHMMSS \
+   /etc/prometheus/alertmanager.yml
+
+systemctl reload prometheus-alertmanager
+```
+
+### Exporter deinstallieren
+
+```bash
+# node_exporter (alle VMs):
+systemctl stop prometheus-node-exporter
+apt-get purge prometheus-node-exporter
+
+# postgres_exporter (db01):
+systemctl stop postgres-exporter
+rm -f /usr/local/bin/postgres_exporter
+rm -f /etc/systemd/system/postgres-exporter.service
+rm -f /etc/default/postgres_exporter
+systemctl daemon-reload
+
+# nginx-prometheus-exporter (lb01):
+systemctl stop nginx-exporter
+rm -f /usr/local/bin/nginx-prometheus-exporter
+rm -f /etc/systemd/system/nginx-exporter.service
+systemctl daemon-reload
+```
+
+### Monitoring-Stack komplett entfernen (mon01)
+
+```bash
+systemctl stop prometheus grafana-server prometheus-alertmanager
+apt-get purge prometheus prometheus-alertmanager grafana
+rm -f /etc/prometheus/prometheus.yml /etc/prometheus/alert-rules.yml
+rm -f /etc/prometheus/alertmanager.yml
+rm -f /etc/grafana/provisioning/datasources/prometheus.yml
 ```
 
 ---

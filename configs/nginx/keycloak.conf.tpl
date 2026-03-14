@@ -42,6 +42,15 @@ server {
         try_files $uri =404;
     }
 
+    # Stub-Status fuer nginx-prometheus-exporter (nur lokal erreichbar)
+    location /nginx_status {
+        stub_status;
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        access_log off;
+    }
+
     # Alles andere → HTTPS umleiten
     location / {
         return 301 https://$host$request_uri;

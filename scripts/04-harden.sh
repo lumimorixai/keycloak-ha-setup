@@ -12,6 +12,7 @@
 #   db        – Datenbankserver (db01): PostgreSQL-Port von KC-Nodes erlauben
 #   keycloak  – Keycloak-Node (kc01/kc02): HTTP von lb01, JGroups zwischen Nodes
 #   lb        – Load Balancer (lb01): HTTP+HTTPS von allen, Nginx-Fail2ban-Jails
+#   mon       – Monitoring-VM (mon01): Grafana, Prometheus, Alertmanager
 #
 # Was dieses Skript tut (alle Schritte idempotent):
 #   1. Pakete installieren (ufw, fail2ban, unattended-upgrades)
@@ -43,11 +44,12 @@ source "${SCRIPT_DIR}/00-common.sh"
 
 usage() {
     printf 'Verwendung: %s <vm-typ>\n' "${0}"
-    printf '  vm-typ: db | keycloak | lb\n'
+    printf '  vm-typ: db | keycloak | lb | mon\n'
     printf '\n'
     printf '  db        – Datenbankserver (db01)\n'
     printf '  keycloak  – Keycloak-Node  (kc01 oder kc02)\n'
     printf '  lb        – Load Balancer  (lb01)\n'
+    printf '  mon       – Monitoring-VM  (mon01)\n'
     exit 1
 }
 
@@ -59,9 +61,9 @@ fi
 vm_role="${1}"
 
 case "${vm_role}" in
-    db|keycloak|lb) ;;
+    db|keycloak|lb|mon) ;;
     *)
-        log_err "Ungültiger VM-Typ: '${vm_role}'. Erlaubt: db, keycloak, lb"
+        log_err "Ungültiger VM-Typ: '${vm_role}'. Erlaubt: db, keycloak, lb, mon"
         usage
         ;;
 esac
@@ -155,7 +157,65 @@ case "${vm_role}" in
         ufw allow 443/tcp comment "HTTPS"
         log_info "HTTP Port 80 und HTTPS Port 443 erlaubt (alle IPs)"
         ;;
+
+    mon)
+        log_info "UFW: Regeln für mon (Monitoring)"
+        ufw allow 3000/tcp comment "Grafana"
+        log_info "Grafana Port 3000 erlaubt (alle IPs)"
+        # Prometheus und Alertmanager: eingeschränkt auf Admin-IPs wenn gesetzt
+        if [[ -n "${ADMIN_IPS:-}" ]]; then
+            IFS=',' read -ra admin_ip_list_mon <<< "${ADMIN_IPS}"
+            for admin_ip in "${admin_ip_list_mon[@]}"; do
+                admin_ip="${admin_ip// /}"
+                ufw allow from "${admin_ip}" to any port 9090 proto tcp \
+                    comment "Prometheus Admin"
+                ufw allow from "${admin_ip}" to any port 9093 proto tcp \
+                    comment "Alertmanager Admin"
+            done
+            log_info "Prometheus :9090 und Alertmanager :9093 nur für Admin-IPs"
+        else
+            ufw allow 9090/tcp comment "Prometheus"
+            ufw allow 9093/tcp comment "Alertmanager"
+            log_info "Prometheus :9090 und Alertmanager :9093 erlaubt (alle IPs)"
+        fi
+        ;;
 esac
+
+# --------------------------------------------------------------------------
+# Monitoring-Ports (optional, nur wenn MON_HOST gesetzt)
+# --------------------------------------------------------------------------
+# Erlaubt der Monitoring-VM (mon01) die Exporter-Ports zu scrapen.
+# MON_HOST ist optional und steht nicht in required_vars.
+if [[ -n "${MON_HOST:-}" ]]; then
+    log_info "MON_HOST gesetzt (${MON_HOST}) – Monitoring-Ports werden freigegeben."
+    case "${vm_role}" in
+        db)
+            ufw allow from "${MON_HOST}" to any port 9100 proto tcp \
+                comment "node_exporter von mon01"
+            ufw allow from "${MON_HOST}" to any port 9187 proto tcp \
+                comment "postgres_exporter von mon01"
+            log_info "Monitoring: 9100 + 9187 erlaubt von ${MON_HOST}"
+            ;;
+        keycloak)
+            ufw allow from "${MON_HOST}" to any port 9100 proto tcp \
+                comment "node_exporter von mon01"
+            ufw allow from "${MON_HOST}" to any port "${KC_MGMT_PORT}" proto tcp \
+                comment "KC Metrics von mon01"
+            log_info "Monitoring: 9100 + ${KC_MGMT_PORT} erlaubt von ${MON_HOST}"
+            ;;
+        lb)
+            ufw allow from "${MON_HOST}" to any port 9100 proto tcp \
+                comment "node_exporter von mon01"
+            ufw allow from "${MON_HOST}" to any port 9113 proto tcp \
+                comment "nginx_exporter von mon01"
+            log_info "Monitoring: 9100 + 9113 erlaubt von ${MON_HOST}"
+            ;;
+        mon)
+            # mon01 scrape-Zugriff auf sich selbst (localhost) braucht kein UFW
+            log_info "Monitoring: mon-Rolle – keine zusätzlichen Regeln nötig"
+            ;;
+    esac
+fi
 
 # UFW aktivieren bzw. Regeln neu laden
 if ufw status | grep -q "Status: active"; then
