@@ -10,8 +10,9 @@
 .env
 .env.*
 
-# .env.example ist die einzige .env-Datei, die ins Repo gehört
+# .env.example und .env.dev.example sind die einzigen .env-Dateien, die ins Repo gehören
 !.env.example
+!.env.dev.example
 
 # ------------------------------------------------------------------------------
 # TLS-Zertifikate und private Schlüssel
