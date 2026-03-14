@@ -46,7 +46,7 @@ keycloak-ha-setup/
 │   ├── 02-setup-keycloak.sh    # JDK + Keycloak – Ausführung auf kc01 und kc02
 │   ├── 03-setup-nginx.sh       # Nginx + Certbot – Ausführung auf lb01
 │   ├── 04-harden.sh            # UFW + SSH + Fail2ban + Unattended-Upgrades – Pflichtparameter: db|keycloak|lb
-│   └── 99-healthcheck.sh       # Validierung – Ausführung von lb01 oder extern
+│   └── 99-healthcheck.sh       # Validierung – Pflichtparameter: lb|keycloak|db
 ├── configs/
 │   ├── keycloak/
 │   │   ├── keycloak.conf.tpl   # Keycloak-Server-Config (Template)
@@ -122,6 +122,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **KC_HTTPS_PORT nicht verwenden:** TLS terminiert am Nginx, Keycloak hört ausschließlich HTTP. `KC_HTTPS_PORT` existiert nicht in `.env.example` und soll auch nicht hinzugefügt werden.
 - **Management-Port 9000:** Seit Keycloak 25+ laufen `/health/ready` und `/metrics` auf Port 9000 (Management-Interface), NICHT auf Port 8080. `curl http://<node>:9000/health/ready` für Health-Checks verwenden. Port 9000 muss in UFW für lb01 freigegeben sein.
 - **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
+- **99-healthcheck.sh Pflichtparameter:** Analog zu 04-harden.sh akzeptiert das Skript `lb|keycloak|db` als `$1`. Jede Rolle prüft nur die für sie relevanten Checks: `lb` = nginx + KC-Nodes + HTTPS + TLS; `keycloak` = lokal + Peer + JGroups + DB; `db` = PostgreSQL + Verbindungen + jgroups_ping-Tabelle.
 - **UFW ist nativ idempotent:** `ufw allow` fügt dieselbe Regel nicht doppelt ein. Pre-Checks via `ufw status | grep ...` sind fehleranfällig (Formatabhängig) und unnötig.
 - **grep -q in Pipes:** `grep -qF "${var}" | grep -q "${port}"` ist kaputt – `-q` unterdrückt stdout, der zweite grep prüft gegen leeren Stream. Stattdessen: `ufw allow` direkt aufrufen oder Prüfung ohne Pipe.
 - **Template-Variablen grep:** Pattern `[A-Z_]+` erfasst keine Ziffern – `KC_NODE1_IP` wird nicht gefunden. Korrektes Pattern: `[A-Z0-9_]+`.

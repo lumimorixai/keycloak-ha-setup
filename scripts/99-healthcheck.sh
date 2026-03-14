@@ -2,17 +2,15 @@
 # ==============================================================================
 # 99-healthcheck.sh – Validierung des Keycloak HA-Setups
 #
-# Ausführung: von lb01 oder extern (nach vollständigem Deployment)
-# Voraussetzung: .env im Repo-Root befüllt; curl und openssl vorhanden
-#                jq optional (bessere Cluster-Auswertung)
+# Ausführung: auf der jeweiligen VM mit Pflichtparameter für die VM-Rolle
 #
-# Was dieses Skript prüft:
-#   1. Keycloak /health/ready auf kc01 und kc02 (direkt HTTP)
-#   2. HTTPS-Endpunkt auf lb01 (https://${KC_DOMAIN}/health/ready)
-#   3. HTTP→HTTPS-Redirect (301)
-#   4. Cluster-Mitgliedschaft: beide Nodes melden numberOfNodes=2
-#   5. pg_isready auf db01 (Fallback: TCP-Porttest)
-#   6. TLS-Zertifikat: Handshake + Ablaufdatum (via openssl s_client)
+# Verwendung:
+#   scripts/99-healthcheck.sh <vm-typ>
+#
+# vm-typ:
+#   lb        – Load Balancer (lb01): nginx, KC-Nodes, HTTPS End-to-End, TLS
+#   keycloak  – Keycloak-Node (kc01/kc02): lokal, Peer, JGroups, DB-Verbindung
+#   db        – Datenbankserver (db01): PostgreSQL, Verbindungen, jgroups_ping
 #
 # Exit-Code: 0 = alle Checks bestanden, 1 = mindestens ein FAIL
 # ==============================================================================
@@ -23,6 +21,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=scripts/00-common.sh
 source "${SCRIPT_DIR}/00-common.sh"
+
+# ==============================================================================
+# Pflichtparameter: VM-Typ
+# ==============================================================================
+
+usage() {
+    printf 'Verwendung: %s <vm-typ>\n' "${0}"
+    printf '  vm-typ: lb | keycloak | db\n\n'
+    printf '  lb        – Load Balancer (lb01)\n'
+    printf '  keycloak  – Keycloak-Node (kc01 oder kc02)\n'
+    printf '  db        – Datenbankserver (db01)\n'
+    exit 1
+}
+
+if [[ "${#}" -ne 1 ]]; then
+    log_err "Genau ein Argument erwartet, ${#} übergeben."
+    usage
+fi
+
+vm_role="${1}"
+
+case "${vm_role}" in
+    lb|keycloak|db) ;;
+    *)
+        log_err "Ungültiger VM-Typ: '${vm_role}'. Erlaubt: lb, keycloak, db"
+        usage
+        ;;
+esac
 
 load_env
 
@@ -48,19 +74,22 @@ fi
 
 check_errors=0
 check_warns=0
+check_total=0
 # Jede Zeile: "STATUS\tLabel\tDetail"
 check_log=''
 
 readonly HTTP_TIMEOUT=10
+readonly NC_TIMEOUT=5
 readonly CERT_WARN_DAYS=30
 
 # ==============================================================================
-# Check-Funktionen (drucken sofort + akkumulieren für Zusammenfassung)
+# Check-Funktionen
 # ==============================================================================
 
 _record() {
     local status="$1" label="$2" detail="$3"
     check_log="${check_log}${status}\t${label}\t${detail}\n"
+    check_total=$(( check_total + 1 ))
 }
 
 check_ok() {
@@ -91,231 +120,369 @@ section() {
 }
 
 # ==============================================================================
+# Hilfsfunktionen
+# ==============================================================================
+
+# HTTP-Status-Code abrufen (kein -f: 4xx/5xx liefern trotzdem Code)
+http_get_code() {
+    curl -s --max-time "${HTTP_TIMEOUT}" \
+        -o /dev/null -w '%{http_code}' "${1}" 2>/dev/null
+}
+
+# TCP-Port-Erreichbarkeit testen
+tcp_check() {
+    nc -z -w "${NC_TIMEOUT}" "${1}" "${2}" 2>/dev/null
+}
+
+# Keycloak-Cluster-Check-Status aus /health-Response extrahieren
+kc_cluster_status() {
+    local url="$1" response
+    response="$(curl -s --max-time "${HTTP_TIMEOUT}" "${url}" 2>/dev/null || true)"
+    if [[ -z "${response}" ]]; then
+        echo "NO_RESPONSE"
+        return
+    fi
+    if command -v jq &>/dev/null; then
+        printf '%s' "${response}" \
+            | jq -r '.checks[]
+                | select(.name | ascii_downcase | contains("cluster"))
+                | .status' 2>/dev/null \
+            | head -1 || echo "UNKNOWN"
+    else
+        printf '%s' "${response}" \
+            | grep -oE '"status"\s*:\s*"[^"]*"' \
+            | head -1 | grep -oE '"[^"]*"$' | tr -d '"' || echo "UNKNOWN"
+    fi
+}
+
+# ==============================================================================
+# lb-Checks: nginx + KC-Nodes + HTTPS End-to-End + TLS
+# ==============================================================================
+
+checks_lb() {
+    # --------------------------------------------------------------------------
+    section "nginx"
+    # --------------------------------------------------------------------------
+
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        check_ok "nginx service" "active"
+    else
+        check_fail "nginx service" "nicht aktiv – 'systemctl status nginx' prüfen"
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Keycloak-Nodes (direkt via Port ${KC_MGMT_PORT})"
+    # --------------------------------------------------------------------------
+
+    for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
+        code="$(http_get_code "http://${node_ip}:${KC_MGMT_PORT}/health/ready")"
+        label="Node ${node_ip}:${KC_MGMT_PORT} /health/ready"
+        if [[ "${code}" == "200" ]]; then
+            check_ok "${label}" "HTTP ${code}"
+        else
+            check_fail "${label}" "HTTP ${code:-000} (erwartet: 200)"
+        fi
+    done
+
+    # --------------------------------------------------------------------------
+    section "HTTPS End-to-End"
+    # --------------------------------------------------------------------------
+
+    code="$(http_get_code "https://${KC_DOMAIN}/realms/master")"
+    if [[ "${code}" == "200" ]]; then
+        check_ok "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${code}"
+    else
+        check_fail "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${code:-000} (erwartet: 200)"
+    fi
+
+    code="$(http_get_code "http://${KC_DOMAIN}/")"
+    if [[ "${code}" == "301" ]]; then
+        check_ok "HTTP→HTTPS Redirect" "HTTP ${code}"
+    else
+        check_warn "HTTP→HTTPS Redirect" "HTTP ${code:-000} (erwartet: 301)"
+    fi
+
+    # --------------------------------------------------------------------------
+    section "TLS-Zertifikat"
+    # --------------------------------------------------------------------------
+
+    cert_text="$(echo Q \
+        | openssl s_client \
+            -connect "${KC_DOMAIN}:443" \
+            -servername "${KC_DOMAIN}" \
+            -verify_return_error \
+            2>/dev/null \
+        | openssl x509 -noout -enddate -subject 2>/dev/null || echo "")"
+
+    if [[ -z "${cert_text}" ]]; then
+        check_fail "TLS-Handshake ${KC_DOMAIN}:443" "Verbindung fehlgeschlagen"
+        check_fail "TLS-Ablaufdatum ${KC_DOMAIN}" "Kein Zertifikat abrufbar"
+    else
+        check_ok "TLS-Handshake ${KC_DOMAIN}:443" "Verbindung und Zertifikatkette OK"
+
+        expiry_str="$(printf '%s' "${cert_text}" | grep 'notAfter=' | cut -d= -f2 || echo "")"
+        if [[ -n "${expiry_str}" ]]; then
+            expiry_epoch="$(date -d "${expiry_str}" '+%s' 2>/dev/null || echo "0")"
+            days_left=$(( (expiry_epoch - $(date '+%s')) / 86400 ))
+
+            if [[ "${days_left}" -lt 0 ]]; then
+                check_fail "TLS-Ablaufdatum ${KC_DOMAIN}" \
+                    "ABGELAUFEN seit ${days_left#-} Tagen!"
+            elif [[ "${days_left}" -lt "${CERT_WARN_DAYS}" ]]; then
+                check_warn "TLS-Ablaufdatum ${KC_DOMAIN}" \
+                    "läuft in ${days_left} Tagen ab (< ${CERT_WARN_DAYS} Tage – Renewal prüfen!)"
+            else
+                check_ok "TLS-Ablaufdatum ${KC_DOMAIN}" \
+                    "gültig, läuft in ${days_left} Tagen ab"
+            fi
+        else
+            check_warn "TLS-Ablaufdatum ${KC_DOMAIN}" "Ablaufdatum konnte nicht geparst werden"
+        fi
+    fi
+}
+
+# ==============================================================================
+# keycloak-Checks: lokal + Peer + JGroups + DB
+# ==============================================================================
+
+checks_keycloak() {
+    # --------------------------------------------------------------------------
+    section "Lokaler Keycloak"
+    # --------------------------------------------------------------------------
+
+    code="$(http_get_code "http://localhost:${KC_MGMT_PORT}/health/ready")"
+    if [[ "${code}" == "200" ]]; then
+        check_ok "localhost:${KC_MGMT_PORT} /health/ready" "HTTP ${code}"
+    else
+        check_fail "localhost:${KC_MGMT_PORT} /health/ready" \
+            "HTTP ${code:-000} (erwartet: 200)"
+    fi
+
+    cluster_status="$(kc_cluster_status "http://localhost:${KC_MGMT_PORT}/health")"
+    case "${cluster_status}" in
+        UP)          check_ok   "localhost Cluster-Check" "status=UP" ;;
+        NO_RESPONSE) check_fail "localhost Cluster-Check" "Keine Antwort" ;;
+        *)           check_fail "localhost Cluster-Check" "status=${cluster_status}" ;;
+    esac
+
+    # --------------------------------------------------------------------------
+    # Peer-Node ermitteln: alle KC-Node-IPs außer der eigenen
+    # --------------------------------------------------------------------------
+    local_ip=""
+    while IFS= read -r ip; do
+        [[ -z "${ip}" ]] && continue
+        if [[ "${ip}" == "${KC_NODE1_IP}" || "${ip}" == "${KC_NODE2_IP}" ]]; then
+            local_ip="${ip}"
+            break
+        fi
+    done < <(hostname -I 2>/dev/null | tr ' ' '\n')
+
+    peer_ips=()
+    for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
+        if [[ "${node_ip}" != "${local_ip}" ]]; then
+            peer_ips+=("${node_ip}")
+        fi
+    done
+    # Fallback falls lokale IP nicht erkannt: beide Nodes prüfen
+    if [[ "${#peer_ips[@]}" -eq 0 ]]; then
+        peer_ips=("${KC_NODE1_IP}" "${KC_NODE2_IP}")
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Peer-Node(s)"
+    # --------------------------------------------------------------------------
+
+    for peer_ip in "${peer_ips[@]}"; do
+        code="$(http_get_code "http://${peer_ip}:${KC_MGMT_PORT}/health/ready")"
+        label="Peer ${peer_ip}:${KC_MGMT_PORT} /health/ready"
+        if [[ "${code}" == "200" ]]; then
+            check_ok "${label}" "HTTP ${code}"
+        else
+            check_fail "${label}" "HTTP ${code:-000} (erwartet: 200)"
+        fi
+
+        label_jg="JGroups TCP ${peer_ip}:${KC_JGROUPS_PORT}"
+        if tcp_check "${peer_ip}" "${KC_JGROUPS_PORT}"; then
+            check_ok "${label_jg}" "Port erreichbar"
+        else
+            check_fail "${label_jg}" "Port nicht erreichbar – Cluster-Kommunikation unterbrochen"
+        fi
+    done
+
+    # --------------------------------------------------------------------------
+    section "Datenbankverbindung (${DB_HOST}:5432)"
+    # --------------------------------------------------------------------------
+
+    label_db="pg_isready ${DB_HOST}:5432 (${DB_NAME})"
+    if command -v pg_isready &>/dev/null; then
+        pg_out="$(pg_isready \
+            -h "${DB_HOST}" -p 5432 \
+            -U "${DB_USER}" -d "${DB_NAME}" \
+            --timeout "${HTTP_TIMEOUT}" 2>&1 || true)"
+        if printf '%s' "${pg_out}" | grep -q "accepting connections"; then
+            check_ok "${label_db}" "accepting connections"
+        else
+            check_fail "${label_db}" "${pg_out}"
+        fi
+    elif tcp_check "${DB_HOST}" 5432; then
+        check_warn "${label_db}" \
+            "TCP Port erreichbar (pg_isready nicht installiert – kein Auth-Check)"
+    else
+        check_fail "${label_db}" "TCP Port nicht erreichbar"
+    fi
+}
+
+# ==============================================================================
+# db-Checks: PostgreSQL Service + Konfiguration + Verbindungen + jgroups_ping
+# ==============================================================================
+
+checks_db() {
+    # --------------------------------------------------------------------------
+    section "PostgreSQL Service"
+    # --------------------------------------------------------------------------
+
+    pg_active_svc=""
+    for svc in postgresql postgresql-16 "postgresql@16-main"; do
+        if systemctl is-active --quiet "${svc}" 2>/dev/null; then
+            pg_active_svc="${svc}"
+            break
+        fi
+    done
+
+    if [[ -n "${pg_active_svc}" ]]; then
+        check_ok "PostgreSQL service" "active (${pg_active_svc})"
+    else
+        check_fail "PostgreSQL service" "kein aktiver postgresql*-Service gefunden"
+    fi
+
+    label_pg="pg_isready lokal (${DB_NAME})"
+    if command -v pg_isready &>/dev/null; then
+        pg_out="$(pg_isready \
+            -h localhost -p 5432 \
+            -U "${DB_USER}" -d "${DB_NAME}" \
+            --timeout "${HTTP_TIMEOUT}" 2>&1 || true)"
+        if printf '%s' "${pg_out}" | grep -q "accepting connections"; then
+            check_ok "${label_pg}" "accepting connections"
+        else
+            check_fail "${label_pg}" "${pg_out}"
+        fi
+    elif tcp_check "localhost" 5432; then
+        check_warn "${label_pg}" "TCP Port erreichbar (pg_isready nicht installiert)"
+    else
+        check_fail "${label_pg}" "TCP Port nicht erreichbar"
+    fi
+
+    # Für detaillierte psql-Abfragen wird passwordless sudo zu postgres benötigt
+    if ! sudo -n -u postgres true 2>/dev/null; then
+        check_warn "PostgreSQL-Detailabfragen" \
+            "Übersprungen – passwordless sudo zu postgres nicht verfügbar"
+        return
+    fi
+
+    # --------------------------------------------------------------------------
+    section "PostgreSQL Konfiguration"
+    # --------------------------------------------------------------------------
+
+    listen_addr="$(sudo -u postgres psql -Atc \
+        "SELECT setting FROM pg_settings WHERE name = 'listen_addresses'" \
+        2>/dev/null || echo "")"
+
+    if [[ -n "${listen_addr}" ]]; then
+        if printf '%s' "${listen_addr}" | grep -qF "${DB_HOST}"; then
+            check_ok "listen_addresses" "${listen_addr}"
+        else
+            check_warn "listen_addresses" \
+                "${listen_addr} – enthält ${DB_HOST} nicht (KC-Nodes können nicht verbinden)"
+        fi
+    else
+        check_warn "listen_addresses" "Konnte nicht abgefragt werden"
+    fi
+
+    # --------------------------------------------------------------------------
+    section "Aktive Verbindungen von KC-Nodes"
+    # --------------------------------------------------------------------------
+
+    for kc_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
+        conn_count="$(sudo -u postgres psql -Atc \
+            "SELECT COUNT(*) FROM pg_stat_activity
+             WHERE datname = '${DB_NAME}' AND client_addr = '${kc_ip}'" \
+            2>/dev/null || echo "")"
+        label_conn="Verbindungen von ${kc_ip}"
+        if [[ -z "${conn_count}" ]]; then
+            check_warn "${label_conn}" "Konnte nicht abgefragt werden"
+        elif [[ "${conn_count}" -gt 0 ]]; then
+            check_ok "${label_conn}" "${conn_count} aktive Verbindung(en)"
+        else
+            check_warn "${label_conn}" \
+                "0 Verbindungen – Keycloak auf ${kc_ip} gestartet?"
+        fi
+    done
+
+    # --------------------------------------------------------------------------
+    section "Cluster-Mitgliedschaft (jgroups_ping)"
+    # --------------------------------------------------------------------------
+
+    # jgroups_ping: Tabellenname in KC 26 (mit Unterstrich, nicht JGROUPSPING)
+    node_rows="$(sudo -u postgres psql -Atd "${DB_NAME}" -c \
+        "SELECT name || ' (' || ip || ')' ||
+                CASE WHEN coord THEN ' [coordinator]' ELSE '' END
+         FROM jgroups_ping
+         ORDER BY coord DESC, name" \
+        2>/dev/null || echo "")"
+
+    node_count=0
+    if [[ -n "${node_rows}" ]]; then
+        node_count="$(printf '%s\n' "${node_rows}" | grep -c '.' || true)"
+    fi
+
+    if [[ "${node_count}" -eq 2 ]]; then
+        check_ok "jgroups_ping" "${node_count}/2 Nodes registriert"
+        while IFS= read -r row; do
+            [[ -n "${row}" ]] && check_ok "  └─ ${row}" ""
+        done <<< "${node_rows}"
+    elif [[ "${node_count}" -eq 1 ]]; then
+        check_warn "jgroups_ping" \
+            "1/2 Nodes registriert – zweite Node noch nicht verbunden"
+        while IFS= read -r row; do
+            [[ -n "${row}" ]] && check_warn "  └─ ${row}" ""
+        done <<< "${node_rows}"
+    else
+        check_fail "jgroups_ping" \
+            "${node_count} Einträge – Clustering nicht aktiv oder Nodes nicht gestartet"
+    fi
+}
+
+# ==============================================================================
 # Header
 # ==============================================================================
 
-printf '\n%s%s Keycloak HA Healthcheck %s\n' \
-    "${C_BOLD}" "══════════════════════" "══════════════════════${C_RESET}"
+printf '\n%s%s Keycloak HA Healthcheck (%s) %s\n' \
+    "${C_BOLD}" "═══════════════════" "${vm_role}" "═══════════════════${C_RESET}"
 printf '  %s%-16s%s %s\n' "${C_DIM}" "Zeitpunkt:" "${C_RESET}" "$(date '+%Y-%m-%d %H:%M:%S')"
 printf '  %s%-16s%s %s\n' "${C_DIM}" "Domain:" "${C_RESET}" "${KC_DOMAIN}"
-printf '  %s%-16s%s %s / %s\n' "${C_DIM}" "KC-Nodes:" "${C_RESET}" \
+printf '  %s%-16s%s %s / %s\n\n' "${C_DIM}" "KC-Nodes:" "${C_RESET}" \
     "${KC_NODE1_IP}:${KC_HTTP_PORT}" "${KC_NODE2_IP}:${KC_HTTP_PORT}"
-printf '  %s%-16s%s %s / %s\n' "${C_DIM}" "KC-Mgmt:" "${C_RESET}" \
-    "${KC_NODE1_IP}:${KC_MGMT_PORT}" "${KC_NODE2_IP}:${KC_MGMT_PORT}"
-printf '  %s%-16s%s %s:5432 / %s\n\n' "${C_DIM}" "PostgreSQL:" "${C_RESET}" \
-    "${DB_HOST}" "${DB_NAME}"
 
 # ==============================================================================
-# 1. Keycloak /health/ready direkt auf beiden Nodes
+# Checks ausführen
 # ==============================================================================
 
-section "Keycloak /health/ready (direkt)"
-
-for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
-    url="http://${node_ip}:${KC_MGMT_PORT}/health/ready"
-    # Kein -f: curl soll auch bei 4xx/5xx den HTTP-Code liefern.
-    # Bei Verbindungsfehler (Timeout, DNS) gibt curl "" zurück → leerer http_code.
-    http_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
-        -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null)"
-
-    label="Node ${node_ip}:${KC_MGMT_PORT} /health/ready"
-    if [[ "${http_code}" == "200" ]]; then
-        check_ok "${label}" "HTTP ${http_code}"
-    else
-        check_fail "${label}" "HTTP ${http_code} (erwartet: 200)"
-    fi
-done
+case "${vm_role}" in
+    lb)       checks_lb ;;
+    keycloak) checks_keycloak ;;
+    db)       checks_db ;;
+esac
 
 # ==============================================================================
-# 2. HTTPS-Endpunkt über Load Balancer
+# Zusammenfassung
 # ==============================================================================
 
-section "HTTPS via Load Balancer"
-
-# /health/ready existiert nur auf Port 9000 (Management), nicht auf 8080.
-# Über den LB (Port 443 → 8080) prüfen wir daher /realms/master als
-# zuverlässigen Keycloak-Endpunkt (200 = KC läuft und ist erreichbar).
-lb_url="https://${KC_DOMAIN}/realms/master"
-lb_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
-    -o /dev/null -w '%{http_code}' "${lb_url}" 2>/dev/null)"
-
-if [[ "${lb_code}" == "200" ]]; then
-    check_ok "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${lb_code}"
-else
-    check_fail "HTTPS ${KC_DOMAIN} /realms/master" "HTTP ${lb_code} (erwartet: 200)"
-fi
-
-# HTTP→HTTPS Redirect
-redirect_code="$(curl -s --max-time "${HTTP_TIMEOUT}" \
-    -o /dev/null -w '%{http_code}' \
-    "http://${KC_DOMAIN}/" 2>/dev/null)"
-
-if [[ "${redirect_code}" == "301" ]]; then
-    check_ok "HTTP→HTTPS Redirect" "HTTP ${redirect_code}"
-else
-    check_warn "HTTP→HTTPS Redirect" "HTTP ${redirect_code} (erwartet: 301)"
-fi
-
-# ==============================================================================
-# 3. Cluster-Mitgliedschaft: beide Nodes müssen numberOfNodes=2 melden
-# ==============================================================================
-
-section "Cluster-Mitgliedschaft"
-
-for node_ip in "${KC_NODE1_IP}" "${KC_NODE2_IP}"; do
-    url="http://${node_ip}:${KC_MGMT_PORT}/health"
-    label="Cluster-Nodes aus Sicht von ${node_ip}"
-
-    response="$(curl -s --max-time "${HTTP_TIMEOUT}" "${url}" 2>/dev/null || true)"
-
-    if [[ -z "${response}" ]]; then
-        check_fail "${label}" "Keine Antwort von ${url}"
-        continue
-    fi
-
-    # Anzahl der Cluster-Nodes aus dem Health-Check-Response extrahieren.
-    # Keycloak 26 liefert unter .checks[] einen Eintrag mit "cluster" im Namen
-    # und darin .data.numberOfNodes (Integer).
-    node_count=""
-    cluster_status=""
-
-    if command -v jq &>/dev/null; then
-        # Suche nach dem Cluster-Health-Check-Eintrag (case-insensitive via ascii_downcase)
-        cluster_status="$(printf '%s' "${response}" \
-            | jq -r '.checks[]
-                | select(.name | ascii_downcase | contains("cluster"))
-                | .status' 2>/dev/null | head -1 || echo "")"
-        node_count="$(printf '%s' "${response}" \
-            | jq -r '.checks[]
-                | select(.name | ascii_downcase | contains("cluster"))
-                | .data.numberOfNodes // empty' 2>/dev/null | head -1 || echo "")"
-    else
-        # Fallback ohne jq: grep nach "numberOfNodes"
-        node_count="$(printf '%s' "${response}" \
-            | grep -oE '"numberOfNodes"\s*:\s*[0-9]+' \
-            | grep -oE '[0-9]+$' || echo "")"
-        cluster_status="$(printf '%s' "${response}" \
-            | grep -oE '"status"\s*:\s*"[^"]*"' \
-            | head -1 | grep -oE '"[^"]*"$' | tr -d '"' || echo "")"
-    fi
-
-    if [[ -z "${node_count}" ]]; then
-        # KC 26 mit cache-stack=jdbc-ping schreibt numberOfNodes nicht in den
-        # Health-Response (data-Feld fehlt komplett). Status=UP ist ausreichend.
-        # Cluster-Mitgliedschaft prüfen (auf db01):
-        #   sudo -u postgres psql -d <DB_NAME> -c \
-        #     "SELECT name, ip, coord FROM jgroups_ping;"
-        # 2 Zeilen = beide Nodes im Cluster.
-        if [[ "${cluster_status}" == "UP" ]]; then
-            check_ok "${label}" \
-                "status=UP (KC 26: numberOfNodes nicht im Health-Endpoint)"
-        else
-            check_fail "${label}" \
-                "status=${cluster_status:-unbekannt}, Cluster-Check fehlgeschlagen"
-        fi
-    elif [[ "${node_count}" -eq 2 ]]; then
-        check_ok "${label}" "${node_count}/2 Nodes im Cluster"
-    elif [[ "${node_count}" -eq 1 ]]; then
-        check_fail "${label}" \
-            "${node_count}/2 Nodes im Cluster – Split-Brain oder zweite Node nicht verbunden"
-    else
-        check_warn "${label}" \
-            "${node_count} Nodes im Cluster (erwartet: 2)"
-    fi
-done
-
-# ==============================================================================
-# 4. PostgreSQL via pg_isready
-# ==============================================================================
-
-section "PostgreSQL"
-
-label="pg_isready ${DB_HOST}:5432 (${DB_NAME})"
-
-if command -v pg_isready &>/dev/null; then
-    pg_out="$(pg_isready \
-        -h "${DB_HOST}" -p 5432 \
-        -U "${DB_USER}" -d "${DB_NAME}" \
-        --timeout "${HTTP_TIMEOUT}" 2>&1 || true)"
-
-    if printf '%s' "${pg_out}" | grep -q "accepting connections"; then
-        check_ok "${label}" "accepting connections"
-    else
-        check_fail "${label}" "${pg_out}"
-    fi
-else
-    # Fallback: TCP-Porttest (kein Auth, kein DB-Name)
-    if timeout "${HTTP_TIMEOUT}" bash -c \
-        "echo > /dev/tcp/${DB_HOST}/5432" 2>/dev/null; then
-        check_warn "${label}" \
-            "TCP-Port erreichbar (pg_isready nicht installiert – kein Auth-Check)"
-    else
-        # TCP nicht erreichbar kann an UFW liegen (lb01 darf db01:5432 nicht erreichen – korrekt).
-        # Nur von einem KC-Node aus ist dieser Check aussagekräftig.
-        check_warn "${label}" \
-            "TCP-Port nicht erreichbar – erwartet wenn Skript von lb01 läuft (UFW erlaubt nur KC-Nodes)"
-    fi
-fi
-
-# ==============================================================================
-# 5. TLS-Zertifikat: Handshake + Ablaufdatum via openssl s_client
-#    (kein root nötig, funktioniert auch von extern)
-# ==============================================================================
-
-section "TLS-Zertifikat"
-
-label_handshake="TLS-Handshake ${KC_DOMAIN}:443"
-label_expiry="TLS-Ablaufdatum ${KC_DOMAIN}"
-
-# Zertifikat vom Server abrufen und Ablaufdatum prüfen
-cert_text="$(echo Q \
-    | openssl s_client \
-        -connect "${KC_DOMAIN}:443" \
-        -servername "${KC_DOMAIN}" \
-        -verify_return_error \
-        2>/dev/null \
-    | openssl x509 -noout -enddate -subject 2>/dev/null || echo "")"
-
-if [[ -z "${cert_text}" ]]; then
-    check_fail "${label_handshake}" "TLS-Verbindung fehlgeschlagen"
-    check_fail "${label_expiry}" "Kein Zertifikat abrufbar"
-else
-    check_ok "${label_handshake}" "Verbindung und Zertifikatkette OK"
-
-    expiry_str="$(printf '%s' "${cert_text}" \
-        | grep 'notAfter=' | cut -d= -f2 || echo "")"
-
-    if [[ -n "${expiry_str}" ]]; then
-        expiry_epoch="$(date -d "${expiry_str}" '+%s' 2>/dev/null || echo "0")"
-        now_epoch="$(date '+%s')"
-        days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
-
-        if [[ "${days_left}" -lt 0 ]]; then
-            check_fail "${label_expiry}" \
-                "ABGELAUFEN seit ${days_left#-} Tagen!"
-        elif [[ "${days_left}" -lt "${CERT_WARN_DAYS}" ]]; then
-            check_warn "${label_expiry}" \
-                "läuft in ${days_left} Tagen ab (< ${CERT_WARN_DAYS} Tage – Renewal prüfen!)"
-        else
-            check_ok "${label_expiry}" "gültig, läuft in ${days_left} Tagen ab"
-        fi
-    else
-        check_warn "${label_expiry}" "Ablaufdatum konnte nicht geparst werden"
-    fi
-fi
-
-# ==============================================================================
-# Farbige Zusammenfassung
-# ==============================================================================
-
-total_checks=$(( $(printf '%b' "${check_log}" | grep -c '^') ))
-ok_count=$(( total_checks - check_errors - check_warns ))
+ok_count=$(( check_total - check_errors - check_warns ))
 
 printf '\n%s%s Zusammenfassung %s%s\n' \
     "${C_BOLD}" "══════════════════════════════" \
     "══════════════════════════════" "${C_RESET}"
 
-# Detail-Zeilen wiederholen (gruppiert nach Status)
 if [[ "${check_errors}" -gt 0 ]]; then
     printf '\n  %sFehlgeschlagene Checks:%s\n' "${C_RED}${C_BOLD}" "${C_RESET}"
     while IFS=$'\t' read -r status lbl det; do
@@ -335,37 +502,26 @@ if [[ "${check_warns}" -gt 0 ]]; then
 fi
 
 printf '\n  %s%-12s%s %s%d gesamt%s' \
-    "${C_DIM}" "Checks:" "${C_RESET}" "${C_BOLD}" "${total_checks}" "${C_RESET}"
+    "${C_DIM}" "Checks:" "${C_RESET}" "${C_BOLD}" "${check_total}" "${C_RESET}"
 printf '  %s✓ %d OK%s' "${C_GREEN}" "${ok_count}" "${C_RESET}"
-if [[ "${check_warns}" -gt 0 ]]; then
-    printf '  %s! %d WARN%s' "${C_YELLOW}" "${check_warns}" "${C_RESET}"
-fi
-if [[ "${check_errors}" -gt 0 ]]; then
-    printf '  %s✗ %d FAIL%s' "${C_RED}" "${check_errors}" "${C_RESET}"
-fi
-printf '\n'
+[[ "${check_warns}"  -gt 0 ]] && printf '  %s! %d WARN%s' "${C_YELLOW}" "${check_warns}"  "${C_RESET}"
+[[ "${check_errors}" -gt 0 ]] && printf '  %s✗ %d FAIL%s' "${C_RED}"    "${check_errors}" "${C_RESET}"
+printf '\n\n'
 
-printf '\n  %-14s ' "Endpunkte:"
-printf '%shttps://%s%s\n' "${C_BOLD}" "${KC_DOMAIN}" "${C_RESET}"
-printf '  %-14s %s\n' "" "kc01: ${KC_NODE1_IP}:${KC_HTTP_PORT}"
-printf '  %-14s %s\n' "" "kc02: ${KC_NODE2_IP}:${KC_HTTP_PORT}"
-printf '  %-14s %s:5432 / %s\n' "" "${DB_HOST}" "${DB_NAME}"
-
-printf '\n'
 if [[ "${check_errors}" -eq 0 ]]; then
-    printf '%s%s ALLE %d CHECKS BESTANDEN ✓ %s%s\n' \
+    printf '%s%s ALLE %d CHECKS BESTANDEN ✓ %s%s\n\n' \
         "${C_GREEN}${C_BOLD}" \
         "══════════════════════" \
-        "${total_checks}" \
+        "${check_total}" \
         "══════════════════════" \
         "${C_RESET}"
     exit 0
 else
-    printf '%s%s %d VON %d CHECKS FEHLGESCHLAGEN ✗ %s%s\n' \
+    printf '%s%s %d VON %d CHECKS FEHLGESCHLAGEN ✗ %s%s\n\n' \
         "${C_RED}${C_BOLD}" \
         "═══════════════════" \
         "${check_errors}" \
-        "${total_checks}" \
+        "${check_total}" \
         "═══════════════════" \
         "${C_RESET}"
     exit 1
