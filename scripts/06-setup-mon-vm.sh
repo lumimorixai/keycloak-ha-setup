@@ -86,7 +86,7 @@ ensure_package prometheus-alertmanager
 
 log_info "--- Schritt 4/9: Grafana installieren ---"
 
-ensure_package curl gnupg apt-transport-https
+ensure_package curl gnupg apt-transport-https jq
 
 needs_apt_update=0
 
