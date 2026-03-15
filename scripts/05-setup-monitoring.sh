@@ -138,7 +138,7 @@ case "${vm_role}" in
         tmp_env="$(mktemp)"
         cat > "${tmp_env}" <<EOF
 # postgres_exporter – generiert von 05-setup-monitoring.sh
-DATA_SOURCE_NAME=postgresql://${DB_USER}:${db_password_encoded}@${DB_HOST}:5432/${DB_NAME}?sslmode=disable
+DATA_SOURCE_NAME=postgresql://${DB_USER}:${db_password_encoded}@127.0.0.1:5432/${DB_NAME}?sslmode=disable
 EOF
 
         pg_env_changed=0
