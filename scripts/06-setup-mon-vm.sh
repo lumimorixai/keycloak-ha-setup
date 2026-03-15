@@ -9,14 +9,16 @@
 #   1. node_exporter installieren (Debian-Paket, Self-Monitoring)
 #   2. Prometheus installieren (Debian-Paket)
 #   3. Alertmanager installieren (Debian-Paket)
-#   4. Grafana installieren (offizielles grafana.com-Repo)
-#   5. prometheus.yml aus Template deployen
-#   6. alertmanager.yml aus Template deployen
-#   7. Alert-Rules deployen (statische Datei)
-#   8. Grafana Datasource auto-provisioning
-#   9. Grafana Dashboard-Provisioning konfigurieren
-#  10. Dashboards deployen (Community-Download + Custom)
-#  11. Services aktivieren und starten
+#   4. Blackbox-Exporter installieren (TLS-Probe)
+#   5. Grafana installieren (offizielles grafana.com-Repo)
+#   6. prometheus.yml aus Template deployen
+#   7. alertmanager.yml aus Template deployen
+#   8. Blackbox-Exporter Config deployen
+#   9. Alert-Rules deployen (statische Datei)
+#  10. Grafana Datasource auto-provisioning
+#  11. Grafana Dashboard-Provisioning konfigurieren
+#  12. Dashboards deployen (Community-Download + Custom)
+#  13. Services aktivieren und starten
 # ==============================================================================
 
 set -euo pipefail
@@ -54,7 +56,10 @@ readonly -a COMMUNITY_DASHBOARDS=(
 )
 
 # envsubst-Variablen für prometheus.yml (nur .env-Variablen ersetzen)
-readonly PROM_ENVSUBST_VARS='${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_MGMT_PORT} ${DB_HOST} ${LB_HOST}'
+readonly BLACKBOX_CONF_SRC="${REPO_DIR}/configs/monitoring/blackbox.yml"
+readonly BLACKBOX_CONF_DST="/etc/prometheus/blackbox.yml"
+
+readonly PROM_ENVSUBST_VARS='${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_MGMT_PORT} ${DB_HOST} ${LB_HOST}'
 # envsubst-Variablen für alertmanager.yml
 readonly AM_ENVSUBST_VARS='${ACME_EMAIL}'
 
@@ -106,36 +111,44 @@ require_root
 log_info "=== Monitoring-Stack Setup startet ==="
 
 # ==============================================================================
-# Schritt 1/11: node_exporter auf mon01 selbst installieren
+# Schritt 1/13: node_exporter auf mon01 selbst installieren
 # ==============================================================================
 # prometheus.yml.tpl hat localhost:9100 als Target – node_exporter muss lokal laufen.
 
-log_info "--- Schritt 1/11: node_exporter installieren ---"
+log_info "--- Schritt 1/13: node_exporter installieren ---"
 
 ensure_package prometheus-node-exporter
 ensure_service prometheus-node-exporter
 
 # ==============================================================================
-# Schritt 2/11: Prometheus installieren
+# Schritt 2/13: Prometheus installieren
 # ==============================================================================
 
-log_info "--- Schritt 2/11: Prometheus installieren ---"
+log_info "--- Schritt 2/13: Prometheus installieren ---"
 
 ensure_package prometheus
 
 # ==============================================================================
-# Schritt 3/11: Alertmanager installieren
+# Schritt 3/13: Alertmanager installieren
 # ==============================================================================
 
-log_info "--- Schritt 3/11: Alertmanager installieren ---"
+log_info "--- Schritt 3/13: Alertmanager installieren ---"
 
 ensure_package prometheus-alertmanager
 
 # ==============================================================================
-# Schritt 4/11: Grafana installieren (offizielles Repo)
+# Schritt 4/13: Blackbox-Exporter installieren (TLS-Probe)
 # ==============================================================================
 
-log_info "--- Schritt 4/11: Grafana installieren ---"
+log_info "--- Schritt 4/13: Blackbox-Exporter installieren ---"
+
+ensure_package prometheus-blackbox-exporter
+
+# ==============================================================================
+# Schritt 5/13: Grafana installieren (offizielles Repo)
+# ==============================================================================
+
+log_info "--- Schritt 5/13: Grafana installieren ---"
 
 ensure_package curl gnupg apt-transport-https jq
 
@@ -167,10 +180,10 @@ fi
 ensure_package grafana
 
 # ==============================================================================
-# Schritt 5/11: prometheus.yml aus Template deployen
+# Schritt 6/13: prometheus.yml aus Template deployen
 # ==============================================================================
 
-log_info "--- Schritt 5/11: prometheus.yml deployen ---"
+log_info "--- Schritt 6/13: prometheus.yml deployen ---"
 
 prom_changed=0
 if [[ ! -f "${PROM_CONF}" ]] \
@@ -183,10 +196,10 @@ fi
 deploy_config "${PROM_CONF_TPL}" "${PROM_CONF}" "prometheus:prometheus" "0640" "${PROM_ENVSUBST_VARS}"
 
 # ==============================================================================
-# Schritt 6/11: alertmanager.yml aus Template deployen
+# Schritt 7/13: alertmanager.yml aus Template deployen
 # ==============================================================================
 
-log_info "--- Schritt 6/11: alertmanager.yml deployen ---"
+log_info "--- Schritt 7/13: alertmanager.yml deployen ---"
 
 am_changed=0
 if [[ ! -f "${AM_CONF}" ]] \
@@ -199,10 +212,30 @@ fi
 deploy_config "${AM_CONF_TPL}" "${AM_CONF}" "prometheus:prometheus" "0640" "${AM_ENVSUBST_VARS}"
 
 # ==============================================================================
-# Schritt 7/11: Alert-Rules deployen (statische Datei, kein envsubst)
+# Schritt 8/13: Blackbox-Exporter Config deployen
 # ==============================================================================
 
-log_info "--- Schritt 7/11: Alert-Rules deployen ---"
+log_info "--- Schritt 8/13: Blackbox-Exporter Config deployen ---"
+
+blackbox_changed=0
+if [[ ! -f "${BLACKBOX_CONF_DST}" ]] \
+    || ! diff -q "${BLACKBOX_CONF_SRC}" "${BLACKBOX_CONF_DST}" &>/dev/null; then
+    if [[ -f "${BLACKBOX_CONF_DST}" ]]; then
+        backup_file "${BLACKBOX_CONF_DST}"
+    fi
+    cp "${BLACKBOX_CONF_SRC}" "${BLACKBOX_CONF_DST}"
+    chmod 0644 "${BLACKBOX_CONF_DST}"
+    log_info "Blackbox-Config deployed: ${BLACKBOX_CONF_DST}"
+    blackbox_changed=1
+else
+    log_info "Blackbox-Config bereits aktuell: ${BLACKBOX_CONF_DST}"
+fi
+
+# ==============================================================================
+# Schritt 9/13: Alert-Rules deployen (statische Datei, kein envsubst)
+# ==============================================================================
+
+log_info "--- Schritt 9/13: Alert-Rules deployen ---"
 
 rules_changed=0
 if [[ ! -f "${ALERT_RULES_DST}" ]] \
@@ -227,10 +260,10 @@ if command -v promtool &>/dev/null; then
 fi
 
 # ==============================================================================
-# Schritt 8/11: Grafana Datasource auto-provisioning
+# Schritt 10/13: Grafana Datasource auto-provisioning
 # ==============================================================================
 
-log_info "--- Schritt 8/11: Grafana Datasource konfigurieren ---"
+log_info "--- Schritt 10/13: Grafana Datasource konfigurieren ---"
 
 # Provisioning-Verzeichnis sicherstellen
 if [[ ! -d "$(dirname "${GRAFANA_DS_DST}")" ]]; then
@@ -252,10 +285,10 @@ else
 fi
 
 # ==============================================================================
-# Schritt 9/11: Grafana Dashboard-Provisioning konfigurieren
+# Schritt 11/13: Grafana Dashboard-Provisioning konfigurieren
 # ==============================================================================
 
-log_info "--- Schritt 9/11: Grafana Dashboard-Provisioning ---"
+log_info "--- Schritt 11/13: Grafana Dashboard-Provisioning ---"
 
 grafana_changed=0
 
@@ -279,10 +312,10 @@ else
 fi
 
 # ==============================================================================
-# Schritt 10/11: Dashboards deployen (Community-Download + Custom)
+# Schritt 12/13: Dashboards deployen (Community-Download + Custom)
 # ==============================================================================
 
-log_info "--- Schritt 10/11: Dashboards deployen ---"
+log_info "--- Schritt 12/13: Dashboards deployen ---"
 
 # Dashboard-Verzeichnis anlegen
 if [[ ! -d "${GRAFANA_DASH_DIR}" ]]; then
@@ -317,13 +350,14 @@ if [[ -d "${CUSTOM_DASH_SRC}" ]]; then
 fi
 
 # ==============================================================================
-# Schritt 11/11: Services aktivieren und starten
+# Schritt 13/13: Services aktivieren und starten
 # ==============================================================================
 
-log_info "--- Schritt 11/11: Services aktivieren ---"
+log_info "--- Schritt 13/13: Services aktivieren ---"
 
 ensure_service prometheus
 ensure_service prometheus-alertmanager
+ensure_service prometheus-blackbox-exporter
 ensure_service grafana-server
 
 # Prometheus bei Config-Änderung neu laden (SIGHUP = config reload ohne Restart)
@@ -332,6 +366,13 @@ if [[ $(( prom_changed + rules_changed )) -gt 0 ]] \
     systemctl reload prometheus 2>/dev/null \
         || systemctl restart prometheus
     log_info "Prometheus neu geladen (Konfiguration geändert)."
+fi
+
+# Blackbox-Exporter bei Config-Änderung neu starten
+if [[ "${blackbox_changed}" -eq 1 ]] \
+    && systemctl is-active --quiet prometheus-blackbox-exporter 2>/dev/null; then
+    systemctl restart prometheus-blackbox-exporter
+    log_info "Blackbox-Exporter neu gestartet (Konfiguration geändert)."
 fi
 
 # Alertmanager bei Config-Änderung neu laden

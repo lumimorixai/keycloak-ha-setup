@@ -4,7 +4,7 @@
 # Deployed via 06-setup-mon-vm.sh → /etc/prometheus/prometheus.yml
 #
 # Variablen (aus .env):
-#   KC_NODE1_IP, KC_NODE2_IP, KC_MGMT_PORT, DB_HOST, LB_HOST
+#   KC_DOMAIN, KC_NODE1_IP, KC_NODE2_IP, KC_MGMT_PORT, DB_HOST, LB_HOST
 # ==============================================================================
 
 global:
@@ -57,3 +57,19 @@ scrape_configs:
     static_configs:
       - targets:
           - ${LB_HOST}:9113
+
+  # --- Blackbox TLS-Probe (Zertifikats-Ablauf) ---
+  - job_name: blackbox-tls
+    metrics_path: /probe
+    params:
+      module: [tls_probe]
+    static_configs:
+      - targets:
+          - https://${KC_DOMAIN}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115

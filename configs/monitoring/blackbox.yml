@@ -1,0 +1,20 @@
+# ==============================================================================
+# Blackbox Exporter – TLS-Zertifikat-Probe
+#
+# Deployed via 06-setup-mon-vm.sh → /etc/prometheus/blackbox.yml
+# Statische Datei (kein Template).
+#
+# Prometheus scraped den Blackbox-Exporter mit dem Modul "tls_probe",
+# um die TLS-Zertifikatslaufzeit von KC_DOMAIN zu prüfen.
+# ==============================================================================
+
+modules:
+  tls_probe:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: false

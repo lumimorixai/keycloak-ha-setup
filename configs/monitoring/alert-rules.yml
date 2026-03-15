@@ -68,6 +68,15 @@ groups:
         annotations:
           summary: "GC-Pause > 500ms auf {{ $labels.instance }}: {{ $value | humanize }}s"
 
+      - alert: KCClusterMembershipBroken
+        expr: keycloak_cluster_nodes != 2
+        for: 2m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "Keycloak Cluster-Mitgliedschaft gestoert: {{ $value }} Nodes (erwartet: 2) auf {{ $labels.instance }}"
+
   # ============================================================================
   # PostgreSQL
   # ============================================================================
@@ -162,11 +171,45 @@ groups:
         annotations:
           summary: "systemd Unit {{ $labels.name }} auf {{ $labels.instance }} fehlgeschlagen"
 
+      - alert: Fail2banExcessiveBans
+        expr: fail2ban_banned_current{jail="sshd"} > 20
+        for: 5m
+        labels:
+          severity: warning
+          zabbix: "true"
+        annotations:
+          summary: "Fail2ban: {{ $value }} IPs gebannt auf {{ $labels.instance }} (> 20)"
+
   # ============================================================================
-  # TLS-Zertifikat (via Blackbox-Exporter oder manueller Probe)
+  # TLS-Zertifikat (via Blackbox-Exporter auf mon01)
   # ============================================================================
-  # Hinweis: Erfordert blackbox_exporter oder externen Cert-Check.
-  # Alternativ den TLS-Check in 99-healthcheck.sh nutzen.
+  - name: tls
+    rules:
+      - alert: TLSCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox-tls"} - time()) / 86400 < 14
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS-Zertifikat laeuft in {{ $value | humanize }} Tagen ab ({{ $labels.instance }})"
+
+      - alert: TLSCertExpiryCritical
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox-tls"} - time()) / 86400 < 7
+        for: 5m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "TLS-Zertifikat laeuft in {{ $value | humanize }} Tagen ab – DRINGEND erneuern! ({{ $labels.instance }})"
+
+      - alert: TLSProbeFailure
+        expr: probe_success{job="blackbox-tls"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          zabbix: "true"
+        annotations:
+          summary: "TLS-Probe fehlgeschlagen fuer {{ $labels.instance }}"
 
   # ============================================================================
   # Zabbix-Eskalation (nur critical)

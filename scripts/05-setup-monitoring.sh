@@ -66,6 +66,14 @@ readonly PG_EXPORTER_BIN="/usr/local/bin/postgres_exporter"
 readonly PG_EXPORTER_ENV="/etc/default/postgres_exporter"
 readonly PG_EXPORTER_USER="postgres_exporter"
 
+readonly FAIL2BAN_METRICS_SRC="${REPO_DIR}/configs/monitoring/fail2ban-metrics.sh"
+readonly FAIL2BAN_METRICS_DST="/usr/local/bin/fail2ban-metrics.sh"
+readonly FAIL2BAN_CRON="/etc/cron.d/fail2ban-metrics"
+
+readonly KC_CLUSTER_METRICS_SRC="${REPO_DIR}/configs/monitoring/keycloak-cluster-metrics.sh"
+readonly KC_CLUSTER_METRICS_DST="/usr/local/bin/keycloak-cluster-metrics.sh"
+readonly KC_CLUSTER_CRON="/etc/cron.d/keycloak-cluster-metrics"
+
 readonly NGINX_EXPORTER_VERSION="1.4.0"
 readonly NGINX_EXPORTER_URL="https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v${NGINX_EXPORTER_VERSION}/nginx-prometheus-exporter_${NGINX_EXPORTER_VERSION}_linux_amd64.tar.gz"
 readonly NGINX_EXPORTER_BIN="/usr/local/bin/nginx-prometheus-exporter"
@@ -89,7 +97,48 @@ ensure_package prometheus-node-exporter
 ensure_service prometheus-node-exporter
 
 # ==============================================================================
-# Schritt 2: Rollenspezifische Exporter
+# Schritt 2: Fail2ban-Textfile-Collector (alle Rollen)
+# ==============================================================================
+# Schreibt aktuell gebannte IPs als Prometheus-Gauge in eine .prom-Datei,
+# die vom node_exporter Textfile-Collector gelesen wird.
+
+log_info "--- Schritt 2: Fail2ban-Metrics Textfile-Collector ---"
+
+if dpkg -s fail2ban &>/dev/null; then
+    # Textfile-Collector-Verzeichnis sicherstellen
+    mkdir -p /var/lib/prometheus/node-exporter
+
+    # Skript installieren
+    if [[ -f "${FAIL2BAN_METRICS_DST}" ]] \
+        && diff -q "${FAIL2BAN_METRICS_SRC}" "${FAIL2BAN_METRICS_DST}" &>/dev/null; then
+        log_info "fail2ban-metrics.sh bereits aktuell."
+    else
+        install -m 0755 "${FAIL2BAN_METRICS_SRC}" "${FAIL2BAN_METRICS_DST}"
+        log_info "fail2ban-metrics.sh installiert: ${FAIL2BAN_METRICS_DST}"
+    fi
+
+    # Cronjob anlegen (alle 2 Minuten)
+    cron_content="# Fail2ban metrics for Prometheus textfile collector
+*/2 * * * * root ${FAIL2BAN_METRICS_DST}
+"
+    if [[ -f "${FAIL2BAN_CRON}" ]] \
+        && printf '%s' "${cron_content}" | diff -q - "${FAIL2BAN_CRON}" &>/dev/null; then
+        log_info "Fail2ban-Cronjob bereits aktuell."
+    else
+        printf '%s' "${cron_content}" > "${FAIL2BAN_CRON}"
+        chmod 0644 "${FAIL2BAN_CRON}"
+        log_info "Fail2ban-Cronjob installiert: ${FAIL2BAN_CRON}"
+    fi
+
+    # Einmal sofort ausführen
+    "${FAIL2BAN_METRICS_DST}" || true
+    log_info "Fail2ban-Metrics initial geschrieben."
+else
+    log_info "Fail2ban nicht installiert – Textfile-Collector übersprungen."
+fi
+
+# ==============================================================================
+# Schritt 3: Rollenspezifische Exporter
 # ==============================================================================
 
 case "${vm_role}" in
@@ -97,7 +146,7 @@ case "${vm_role}" in
     # db: postgres_exporter
     # ==========================================================================
     db)
-        log_info "--- Schritt 2: postgres_exporter ${PG_EXPORTER_VERSION} installieren ---"
+        log_info "--- Schritt 3: postgres_exporter ${PG_EXPORTER_VERSION} installieren ---"
 
         ensure_package curl
 
@@ -211,7 +260,7 @@ EOF
     # lb: nginx-prometheus-exporter
     # ==========================================================================
     lb)
-        log_info "--- Schritt 2: nginx-prometheus-exporter ${NGINX_EXPORTER_VERSION} installieren ---"
+        log_info "--- Schritt 3: nginx-prometheus-exporter ${NGINX_EXPORTER_VERSION} installieren ---"
 
         ensure_package curl
 
@@ -287,9 +336,40 @@ EOF
     # keycloak: nur node_exporter (bereits in Schritt 1 installiert)
     # ==========================================================================
     keycloak)
-        log_info "--- Schritt 2: Keine zusätzlichen Exporter für Keycloak ---"
+        log_info "--- Schritt 3: Keycloak Cluster-Metrics Textfile-Collector ---"
         log_info "KC-Metriken sind built-in auf Port ${KC_MGMT_PORT} (/metrics)."
-        log_info "Stelle sicher, dass metrics-enabled=true in keycloak.conf gesetzt ist."
+
+        # Cluster-Membership als Textfile-Metrik exportieren
+        ensure_package curl jq
+
+        # Textfile-Collector-Verzeichnis sicherstellen
+        mkdir -p /var/lib/prometheus/node-exporter
+
+        # Skript installieren
+        if [[ -f "${KC_CLUSTER_METRICS_DST}" ]] \
+            && diff -q "${KC_CLUSTER_METRICS_SRC}" "${KC_CLUSTER_METRICS_DST}" &>/dev/null; then
+            log_info "keycloak-cluster-metrics.sh bereits aktuell."
+        else
+            install -m 0755 "${KC_CLUSTER_METRICS_SRC}" "${KC_CLUSTER_METRICS_DST}"
+            log_info "keycloak-cluster-metrics.sh installiert: ${KC_CLUSTER_METRICS_DST}"
+        fi
+
+        # Cronjob anlegen (jede Minute)
+        kc_cron_content="# Keycloak cluster membership metrics for Prometheus textfile collector
+* * * * * root ${KC_CLUSTER_METRICS_DST}
+"
+        if [[ -f "${KC_CLUSTER_CRON}" ]] \
+            && printf '%s' "${kc_cron_content}" | diff -q - "${KC_CLUSTER_CRON}" &>/dev/null; then
+            log_info "Keycloak-Cluster-Cronjob bereits aktuell."
+        else
+            printf '%s' "${kc_cron_content}" > "${KC_CLUSTER_CRON}"
+            chmod 0644 "${KC_CLUSTER_CRON}"
+            log_info "Keycloak-Cluster-Cronjob installiert: ${KC_CLUSTER_CRON}"
+        fi
+
+        # Einmal sofort ausführen
+        "${KC_CLUSTER_METRICS_DST}" || true
+        log_info "Keycloak-Cluster-Metrics initial geschrieben."
         ;;
 esac
 
