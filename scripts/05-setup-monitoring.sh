@@ -141,11 +141,13 @@ case "${vm_role}" in
 DATA_SOURCE_NAME=postgresql://${DB_USER}:${db_password_encoded}@${DB_HOST}:5432/${DB_NAME}?sslmode=disable
 EOF
 
+        pg_env_changed=0
         if [[ -f "${PG_EXPORTER_ENV}" ]] \
             && diff -q "${tmp_env}" "${PG_EXPORTER_ENV}" &>/dev/null; then
             log_info "postgres_exporter Env-Datei bereits aktuell."
             rm -f "${tmp_env}"
         else
+            pg_env_changed=1
             if [[ -f "${PG_EXPORTER_ENV}" ]]; then
                 backup_file "${PG_EXPORTER_ENV}"
             fi
@@ -198,7 +200,7 @@ EOF
 
         ensure_service postgres-exporter
 
-        if [[ "${pg_svc_changed}" -eq 1 ]] \
+        if [[ $(( pg_svc_changed + pg_env_changed )) -gt 0 ]] \
             && systemctl is-active --quiet postgres-exporter 2>/dev/null; then
             systemctl restart postgres-exporter
             log_info "postgres-exporter neugestartet (Konfiguration geändert)."
