@@ -16,6 +16,7 @@ VM 1 (app01):               VM 2 (lb01):
 
 **Kein Clustering:** Einzelne Keycloak-Instanz (kein JGroups, kein JDBC_PING2).
 DB und KC co-located auf app01. Monitoring auf lb01 statt separater mon01.
+Blackbox-Exporter auf lb01 fuer TLS-Zertifikatsueberwachung.
 
 ## Unterschiede zu Prod
 
@@ -108,7 +109,16 @@ sudo scripts/05-setup-monitoring.sh lb
 Prometheus-Targets werden automatisch konfiguriert:
 app01:9000, app01:9100, app01:9187, localhost:9113, localhost:9100.
 
+**Zusätzlich installiert (automatisch via Exporter-Skripte):**
+- Fail2ban-Metriken (textfile collector, alle Rollen) – Cronjob alle 2 Minuten
+- Keycloak Cluster-Membership (textfile collector, keycloak-Rolle) – Cronjob jede Minute
+- Blackbox-Exporter auf lb01 (TLS-Zertifikatsprüfung via `06-setup-mon-vm.sh`)
+
+**Hinweis:** Der Alert `KCClusterMembershipBroken` feuert im DEV-Setup dauerhaft
+(siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)).
+
 Details zu KPIs, Dashboards und Alerting siehe [MONITORING.md](MONITORING.md).
+Alarmbeschreibungen und Maßnahmen siehe [ALERTING-RUNBOOK.md](ALERTING-RUNBOOK.md).
 
 ### Schritt 5: Validierung
 
@@ -143,6 +153,7 @@ Port 7800 (JGroups) wird im DEV-Setup nicht benötigt.
 | lb01 | app01 | 9100 | node_exporter scrapen |
 | lb01 | app01 | 9187 | postgres_exporter scrapen |
 | lb01 | app01 | 9000 | Keycloak-Metriken scrapen |
+| lb01 | localhost | 9115 | Blackbox-Exporter (TLS-Probe) |
 | Admin | lb01 | 3000 | Grafana UI |
 | Admin | lb01 | 9090 | Prometheus UI (optional) |
 
@@ -151,6 +162,18 @@ Port 7800 (JGroups) wird im DEV-Setup nicht benötigt.
 - **Kein HA:** Einzelne Keycloak-Instanz – Ausfall von app01 = kompletter Ausfall.
 - **Single-Node-Warning:** Keycloak loggt eine Warnung, weil `cache=ispn` ohne zweiten
   Cluster-Node konfiguriert ist. Das ist funktional harmlos.
+- **Cluster-Membership-Alert feuert:** Der Alert `KCClusterMembershipBroken` (`keycloak_cluster_nodes != 2`)
+  feuert dauerhaft, da im DEV-Setup nur eine Keycloak-Instanz läuft (`numberOfNodes=1`).
+  Das ist erwartet und kann im Alertmanager via Silence stummgeschaltet werden:
+  ```bash
+  # Silence für DEV-Umgebung setzen (30 Tage):
+  amtool silence add alertname=KCClusterMembershipBroken \
+    --comment="DEV: Single-Node Setup, kein Cluster" \
+    --duration=720h
+  ```
+- **Doppelte Prometheus-Targets:** Da `KC_NODE1_IP == KC_NODE2_IP`, enthält `prometheus.yml`
+  doppelte Targets in den Jobs `keycloak` und `node`. Prometheus dedupliziert diese nicht,
+  scraped die gleiche Instanz zweimal. Funktional harmlos, erzeugt aber doppelte Datenpunkte.
 - **Nginx Upstream:** Der Upstream enthält 2x denselben Backend-Server (da `KC_NODE1_IP == KC_NODE2_IP`).
   Nginx behandelt das korrekt, `ip_hash` hat keinen Effekt bei nur einem realen Backend.
 - **Kein Failover:** Bei Wartungsarbeiten an app01 ist Keycloak nicht erreichbar.

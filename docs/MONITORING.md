@@ -37,6 +37,8 @@ Zabbix, keine Zabbix-Agents auf den VMs. Siehe Abschnitt
 | node_exporter | alle | 9100 | CPU, RAM, Disk, Netzwerk |
 | postgres_exporter | db01 | 9187 | DB-Metriken |
 | nginx-prometheus-exporter | lb01 | 9113 | Request-Rate, Status-Codes |
+| Fail2ban-Metriken (textfile) | alle | – | `fail2ban_banned_current` via Cronjob (2min) |
+| Cluster-Membership (textfile) | kc01, kc02 | – | `keycloak_cluster_nodes` via Cronjob (1min) |
 
 ### Komponenten auf mon01
 
@@ -45,6 +47,7 @@ Zabbix, keine Zabbix-Agents auf den VMs. Siehe Abschnitt
 | Prometheus | 9090 | Scraping + Speicherung + Alerting-Rules |
 | Grafana | 3000 | Dashboards + Alert-Notifications |
 | Alertmanager | 9093 | Alert-Routing (E-Mail, Slack, Webhook) |
+| Blackbox-Exporter | 9115 | TLS-Zertifikatsprüfung (Probe gegen KC_DOMAIN) |
 
 ---
 
@@ -96,10 +99,15 @@ Keycloak 26 liefert mit `metrics-enabled=true` automatisch Micrometer-Metriken.
 
 #### Cluster
 
-| Metrik | Was sie zeigt |
-|---|---|
-| `/health` -> `numberOfNodes` | Cluster-Membership (muss 2 sein) |
-| Infinispan-Cache-Metriken | Session-Replikation, Cache-Hits/Misses |
+| Metrik | Typ | Was sie zeigt |
+|---|---|---|
+| `keycloak_cluster_nodes` | Gauge (textfile) | Cluster-Membership (muss 2 sein in Prod) |
+| `/health` -> `numberOfNodes` | JSON-Feld | Quelle fuer `keycloak_cluster_nodes` (via Cronjob) |
+| Infinispan-Cache-Metriken | Diverse | Session-Replikation, Cache-Hits/Misses |
+
+> **Hinweis:** `keycloak_cluster_nodes` wird via Cronjob (`keycloak-cluster-metrics.sh`)
+> aus dem Health-Endpoint extrahiert und als textfile-Collector-Metrik bereitgestellt.
+> Installiert durch `05-setup-monitoring.sh keycloak`.
 
 ### 2. PostgreSQL-Metriken (via postgres_exporter)
 
@@ -132,25 +140,56 @@ Keycloak 26 liefert mit `metrics-enabled=true` automatisch Micrometer-Metriken.
 | Network Errors | > 0 |
 | Systemd-Unit-Status | != active |
 
+### 5. TLS-Zertifikat (via Blackbox-Exporter auf mon01)
+
+Der Blackbox-Exporter fuehrt eine TLS-Probe gegen `https://${KC_DOMAIN}` durch.
+
+| Metrik | Typ | Was sie zeigt |
+|---|---|---|
+| `probe_ssl_earliest_cert_expiry` | Gauge | Unix-Timestamp des Zertifikatsablaufs |
+| `probe_success` | Gauge | 1 = Probe erfolgreich, 0 = fehlgeschlagen |
+
+**KPI:** Zertifikat muss > 14 Tage gueltig sein (Warning), > 7 Tage (Critical).
+
+### 6. Fail2ban-Metriken (via textfile collector, alle VMs)
+
+| Metrik | Typ | Was sie zeigt |
+|---|---|---|
+| `fail2ban_banned_current{jail="sshd"}` | Gauge (textfile) | Aktuell gebannte IPs im SSH-Jail |
+
+**KPI:** > 20 gebannte IPs deuten auf einen Angriff hin.
+
 ---
 
 ## Alerting-Empfehlungen
 
-Umsetzbar via Prometheus Alertmanager oder Grafana Alerts.
+Alle Alerts sind in `configs/monitoring/alert-rules.yml` als Prometheus Alert-Rules
+implementiert (21 Alerts in 6 Gruppen). Detaillierte Massnahmen pro Alert:
+[ALERTING-RUNBOOK.md](ALERTING-RUNBOOK.md).
 
-| Alert | Bedingung | Severity |
-|---|---|---|
-| KC Node Down | `up{job="keycloak"} == 0` fuer > 1min | critical |
-| Cluster Split-Brain | `numberOfNodes != 2` fuer > 2min | critical |
-| Login-Fehlerrate hoch | `rate(keycloak_failed_login_attempts[5m]) > 10` | warning |
-| Token-Endpoint langsam | `p95(http_server_requests_seconds{uri="/token"}) > 0.5` | warning |
-| DB Connection Pool erschoepft | `hikaricp_connections_pending > 0` fuer > 1min | warning |
-| DB Connections nah am Limit | `pg_stat_activity_count / pg_settings_max_connections > 0.8` | warning |
-| TLS-Zertifikat laeuft ab | < 14 Tage bis Ablauf | warning |
-| Disk > 85% | `node_filesystem_avail_bytes / total < 0.15` | warning |
-| PostgreSQL Down | `pg_up == 0` | critical |
-| Nginx Down | `nginx_up == 0` | critical |
-| Hohe GC-Pausen | `jvm_gc_pause_seconds_max > 0.5` | warning |
+| Alert | Bedingung | Severity | Zabbix |
+|---|---|---|---|
+| KCNodeDown | `up{job="keycloak"} == 0` fuer 2min | critical | ja |
+| LoginFehlerrateHoch | `rate(keycloak_failed_login_attempts[5m]) > 10` | warning | – |
+| BruteForceVerdacht | `rate(keycloak_failed_login_attempts[5m]) * 60 > 50` | warning | ja |
+| TokenEndpointLangsam | p95 Token-Latenz > 500ms fuer 5min | warning | – |
+| DBConnectionPoolErschoepft | `hikaricp_connections_pending > 0` fuer 1min | warning | ja |
+| HoheGCPausen | `jvm_gc_pause_seconds_max > 0.5` fuer 2min | warning | – |
+| KCClusterMembershipBroken | `keycloak_cluster_nodes != 2` fuer 2min | critical | ja |
+| PostgreSQLDown | `pg_up == 0` fuer 1min | critical | ja |
+| DBConnectionsNahAmLimit | `pg_stat_activity_count / max_connections > 0.8` fuer 5min | warning | ja |
+| DBDeadlocks | `rate(pg_stat_database_deadlocks[5m]) > 0` fuer 2min | warning | – |
+| NginxDown | `nginx_up == 0` fuer 1min | critical | ja |
+| HighCPU | CPU > 80% fuer 5min | warning | – |
+| HighMemory | RAM > 90% fuer 5min | warning | – |
+| DiskFull | Disk > 85% fuer 5min | warning | ja |
+| DiskKritisch | Disk > 95% fuer 2min | critical | ja |
+| SystemdUnitFailed | systemd-Unit fehlgeschlagen fuer 2min | warning | – |
+| Fail2banExcessiveBans | > 20 gebannte IPs fuer 5min | warning | ja |
+| TLSCertExpiringSoon | Zertifikat < 14 Tage gueltig | warning | – |
+| TLSCertExpiryCritical | Zertifikat < 7 Tage gueltig | critical | ja |
+| TLSProbeFailure | TLS-Probe fehlgeschlagen fuer 5min | critical | ja |
+| AlleKCNodesDown | Alle KC-Nodes gleichzeitig nicht erreichbar fuer 1min | critical | ja |
 
 ---
 
@@ -234,10 +273,10 @@ sudo scripts/05-setup-monitoring.sh lb
 ```
 
 Installiert pro Rolle:
-- **Alle:** `prometheus-node-exporter` (:9100)
+- **Alle:** `prometheus-node-exporter` (:9100) + Fail2ban-Metriken (textfile collector)
 - **db:** `postgres_exporter` (:9187) – GitHub-Release, systemd-Unit
 - **lb:** `nginx-prometheus-exporter` (:9113) – GitHub-Release, systemd-Unit
-- **keycloak:** Keine zusaetzlichen Exporter (Metriken built-in auf :9000)
+- **keycloak:** Cluster-Membership-Metriken (textfile collector, Cronjob jede Minute)
 
 ### Phase 4: Firewall-Regeln fuer Monitoring (alle VMs)
 
@@ -268,9 +307,10 @@ sudo scripts/04-harden.sh mon
 ```
 
 Installiert und konfiguriert:
-- **Prometheus** (:9090) mit Scrape-Config und Alert-Rules
-- **Alertmanager** (:9093) mit Routing-Config
-- **Grafana** (:3000) mit auto-provisionierter Prometheus-Datasource
+- **Prometheus** (:9090) mit Scrape-Config und 21 Alert-Rules (6 Gruppen)
+- **Alertmanager** (:9093) mit Routing-Config (optional Zabbix-Webhook)
+- **Grafana** (:3000) mit auto-provisionierter Datasource + 5 Dashboards
+- **Blackbox-Exporter** (:9115) fuer TLS-Zertifikatsprüfung
 - **node_exporter** (:9100) fuer Self-Monitoring
 
 ### Phase 6: Validierung
@@ -318,20 +358,27 @@ Phase 6:  mon01       → scripts/99-healthcheck.sh mon  (Validierung)
 | mon01 | lb01  | 9113 | nginx-exporter scrapen         |
 | Admin | mon01 | 3000 | Grafana UI                     |
 | Admin | mon01 | 9090 | Prometheus UI (optional)       |
+| mon01 | localhost | 9115 | Blackbox-Exporter (TLS-Probe)  |
 | mon01 | Zabbix-Server | 10051 | zabbix_sender (optional)  |
 
 ---
 
-## Grafana-Dashboards (Empfehlung)
+## Grafana-Dashboards (auto-provisioniert)
 
-| Dashboard | Inhalt |
-|---|---|
-| Keycloak Overview | Login-Rate, Registrierungen, Fehler, Token-Latenz, aktive Sessions |
-| Keycloak JVM | Heap, GC-Pausen, Threads, CPU, HikariCP Connection Pool |
-| Infrastruktur | CPU, RAM, Disk, Netzwerk pro VM (node_exporter) |
-| PostgreSQL | Connections, Cache-Hit-Ratio, DML-Rate, Deadlocks |
-| Nginx | Request-Rate, Status-Code-Verteilung, Active Connections |
-| Cluster Health | numberOfNodes, JGroups-Status, Split-Brain-Erkennung |
+Dashboards werden automatisch via `06-setup-mon-vm.sh` provisioniert
+(file-based provisioning nach `/var/lib/grafana/dashboards`).
+
+| Dashboard | Quelle | Inhalt |
+|---|---|---|
+| Keycloak Overview | Custom (`keycloak-overview.json`) | Login-Rate, Registrierungen, Fehler, Token-Latenz, Cluster-Nodes, Target-Health |
+| Keycloak JVM | Custom (`keycloak-jvm.json`) | Heap, GC-Pausen, Threads, CPU, HikariCP Connection Pool |
+| Node Exporter Full | Community (ID 1860) | CPU, RAM, Disk, Netzwerk pro VM |
+| PostgreSQL | Community (ID 9628) | Connections, Cache-Hit-Ratio, DML-Rate, Deadlocks |
+| Nginx | Community (ID 12708) | Request-Rate, Status-Code-Verteilung, Active Connections |
+
+Community-Dashboards werden beim ersten Ausfuehren von `06-setup-mon-vm.sh` von
+`grafana.com` heruntergeladen. Die Custom-Dashboards liegen unter
+`configs/monitoring/dashboards/`.
 
 ---
 
@@ -391,16 +438,18 @@ und werden damit an Zabbix weitergeleitet:
 
 | Alert | Kategorie | Beschreibung | Zabbix-Severity |
 |---|---|---|---|
-| KC Node Down | Ausfall | Keycloak-Node antwortet nicht (> 2min) | High |
-| Cluster Split-Brain | Ausfall | Nodes sehen sich nicht mehr (numberOfNodes != 2, > 3min) | Disaster |
-| PostgreSQL Down | Ausfall | Datenbank nicht erreichbar (> 1min) | Disaster |
-| Nginx Down | Ausfall | Load Balancer ausgefallen | Disaster |
-| Brute-Force erkannt | Angriff | Failed Logins > 50/min (deutlich ueber normalem Rauschen) | High |
-| TLS-Zertifikat kritisch | Massnahme | Zertifikat laeuft in < 7 Tagen ab | High |
-| Disk kritisch | Massnahme | Disk-Nutzung > 95% auf einer VM | High |
-| DB Connections erschoepft | Massnahme | Connection-Pool bei > 95% Auslastung | High |
-| Alle KC Nodes Down | Ausfall | Beide Keycloak-Nodes gleichzeitig nicht erreichbar | Disaster |
-| SSH-Bans uebermaessig | Angriff | Fail2ban hat > 20 IPs in der letzten Stunde gebannt | Average |
+| KCNodeDown | Ausfall | Keycloak-Node antwortet nicht (> 2min) | High |
+| KCClusterMembershipBroken | Ausfall | `keycloak_cluster_nodes != 2` (> 2min) | Disaster |
+| PostgreSQLDown | Ausfall | Datenbank nicht erreichbar (> 1min) | Disaster |
+| NginxDown | Ausfall | Load Balancer ausgefallen | Disaster |
+| AlleKCNodesDown | Ausfall | Beide Keycloak-Nodes gleichzeitig nicht erreichbar | Disaster |
+| BruteForceVerdacht | Angriff | Failed Logins > 50/min (> 2min) | High |
+| Fail2banExcessiveBans | Angriff | > 20 gebannte IPs (> 5min) | Average |
+| TLSCertExpiryCritical | Massnahme | Zertifikat laeuft in < 7 Tagen ab | High |
+| TLSProbeFailure | Ausfall | TLS-Probe fehlgeschlagen (> 5min) | High |
+| DiskKritisch | Massnahme | Disk-Nutzung > 95% auf einer VM | High |
+| DBConnectionsNahAmLimit | Massnahme | DB-Connections bei > 80% des Limits | High |
+| DBConnectionPoolErschoepft | Massnahme | HikariCP Pending Connections > 0 | High |
 
 ### Prometheus Alert-Rules mit Zabbix-Label
 
@@ -418,14 +467,14 @@ groups:
         annotations:
           summary: "Keycloak Node {{ $labels.instance }} ist ausgefallen"
 
-      - alert: ClusterSplitBrain
-        expr: keycloak_cluster_node_count != 2
-        for: 3m
+      - alert: KCClusterMembershipBroken
+        expr: keycloak_cluster_nodes != 2
+        for: 2m
         labels:
           severity: critical
           zabbix: "true"
         annotations:
-          summary: "Keycloak-Cluster hat {{ $value }} statt 2 Nodes"
+          summary: "Keycloak Cluster-Mitgliedschaft gestoert: {{ $value }} Nodes (erwartet: 2)"
 
       - alert: BruteForceDetected
         expr: rate(keycloak_failed_login_attempts[5m]) * 60 > 50

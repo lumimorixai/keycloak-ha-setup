@@ -70,9 +70,12 @@ sudo scripts/06-setup-mon-vm.sh               # auf mon01
 sudo scripts/04-harden.sh mon                 # auf mon01
 ```
 
-Installiert Prometheus, Grafana, Alertmanager auf mon01 sowie node_exporter (alle VMs),
-postgres_exporter (db01) und nginx-prometheus-exporter (lb01). Keycloak-Metriken sind
-built-in auf :9000 (metrics-enabled=true). Details: [MONITORING.md](MONITORING.md).
+Installiert Prometheus, Grafana, Alertmanager und Blackbox-Exporter auf mon01 sowie
+node_exporter (alle VMs), postgres_exporter (db01) und nginx-prometheus-exporter (lb01).
+Zusaetzlich: Fail2ban-Metriken (textfile collector, alle VMs) und Keycloak Cluster-Membership
+(textfile collector, kc01/kc02). Keycloak-Metriken sind built-in auf :9000 (metrics-enabled=true).
+Grafana-Dashboards werden automatisch provisioniert (Community + Custom).
+Details: [MONITORING.md](MONITORING.md) | [ALERTING-RUNBOOK.md](ALERTING-RUNBOOK.md).
 
 ### Phase 6: Validierung (auf jeder VM mit passender Rolle)
 
@@ -135,6 +138,7 @@ Monitoring-Stack + Scrape-Targets.
 | mon01 | alle  | 9100 | node_exporter scrapen        |
 | mon01 | db01  | 9187 | postgres_exporter scrapen    |
 | mon01 | lb01  | 9113 | nginx-exporter scrapen       |
+| mon01 | localhost | 9115 | Blackbox-Exporter (TLS-Probe)|
 | Admin | mon01 | 3000 | Grafana UI                   |
 | Admin | mon01 | 9090 | Prometheus UI (optional)     |
 

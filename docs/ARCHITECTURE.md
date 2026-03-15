@@ -35,6 +35,8 @@ Keycloak          Keycloak
         ▼       ▼   ▼      ▼      ▼
     kc*:9000  db01  lb01  alle   mon01
     /metrics  :9187 :9113 :9100  :9100
+                                blackbox
+                                :9115
 ```
 
 ## Komponenten
@@ -71,11 +73,22 @@ Keycloak          Keycloak
 ### mon01 – Monitoring
 
 - **Prometheus**: Scraping + Speicherung + Alert-Rules auf :9090
-- **Grafana**: Dashboards auf :3000 (Prometheus als auto-provisionierte Datasource)
+- **Grafana**: Dashboards auf :3000 (Prometheus als auto-provisionierte Datasource + Dashboards)
 - **Alertmanager**: Alert-Routing auf :9093 (E-Mail, Webhook, optional Zabbix)
+- **Blackbox-Exporter**: TLS-Zertifikatsprüfung auf :9115 (Probe gegen `KC_DOMAIN`)
 - **node_exporter**: System-Metriken auf :9100 (Self-Monitoring)
 - **UFW**: Erlaubt 3000/tcp (Grafana) für alle; 9090/9093 eingeschränkt auf ADMIN_IPS
 - **Fail2ban**: SSH-Schutz
+
+### Textfile-Collector-Metriken (alle VMs)
+
+Zusätzlich zu den Exportern werden auf allen VMs Metriken via node_exporter
+Textfile-Collector bereitgestellt:
+
+- **Fail2ban-Metriken** (`fail2ban_banned_current`): Cronjob alle 2 Minuten,
+  schreibt nach `/var/lib/prometheus/node-exporter/fail2ban.prom`
+- **Keycloak Cluster-Membership** (`keycloak_cluster_nodes`): Nur auf kc01/kc02,
+  Cronjob jede Minute, schreibt nach `/var/lib/prometheus/node-exporter/keycloak_cluster.prom`
 
 Details zu KPIs, Dashboards und Alerting: [MONITORING.md](MONITORING.md)
 
@@ -125,7 +138,7 @@ sowohl technische Alerts (Node Down, Disk Full) als auch fachliche Alerts (Login
 Token-Latenz). Alerts mit Label `zabbix: "true"` können via Alertmanager-Webhook an
 ein bestehendes Zabbix-System weitergeleitet werden.
 
-Setup-Details: [MONITORING.md](MONITORING.md)
+Setup-Details: [MONITORING.md](MONITORING.md) | Alarm-Handbuch: [ALERTING-RUNBOOK.md](ALERTING-RUNBOOK.md)
 
 ## Skalierung
 

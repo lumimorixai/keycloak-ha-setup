@@ -150,6 +150,15 @@ Analog zu postgres_exporter: `NGINX_EXPORTER_VERSION` in
 sudo scripts/05-setup-monitoring.sh lb
 ```
 
+### Blackbox-Exporter upgraden (mon01)
+
+Blackbox-Exporter wird als Debian-Paket installiert:
+
+```bash
+apt-get update && apt-get upgrade prometheus-blackbox-exporter
+systemctl restart prometheus-blackbox-exporter
+```
+
 ### node_exporter upgraden (alle VMs)
 
 node_exporter wird als Debian-Paket (`prometheus-node-exporter`) installiert:
@@ -157,6 +166,21 @@ node_exporter wird als Debian-Paket (`prometheus-node-exporter`) installiert:
 ```bash
 apt-get update && apt-get upgrade prometheus-node-exporter
 ```
+
+### Textfile-Collector-Skripte aktualisieren
+
+Fail2ban-Metriken und Keycloak Cluster-Metrics werden als Skripte + Cronjobs
+installiert. Bei Aenderungen im Repo einfach die Monitoring-Skripte erneut ausfuehren:
+
+```bash
+# Fail2ban-Metriken (alle VMs):
+sudo scripts/05-setup-monitoring.sh <rolle>
+
+# Cluster-Metriken (kc01/kc02):
+sudo scripts/05-setup-monitoring.sh keycloak
+```
+
+Die Skripte erkennen Aenderungen und deployen die neuen Versionen automatisch.
 
 ---
 

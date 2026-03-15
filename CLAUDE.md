@@ -61,13 +61,21 @@ keycloak-ha-setup/
 │   ├── monitoring/
 │   │   ├── prometheus.yml.tpl  # Prometheus Scrape-Config (Template)
 │   │   ├── alertmanager.yml.tpl # Alertmanager Routing (Template)
-│   │   ├── alert-rules.yml     # Prometheus Alert-Rules (statisch)
-│   │   └── grafana-datasource.yml # Grafana Datasource Auto-Provisioning
+│   │   ├── alert-rules.yml     # Prometheus Alert-Rules (statisch, 21 Alerts)
+│   │   ├── blackbox.yml        # Blackbox-Exporter Config (TLS-Probe)
+│   │   ├── grafana-datasource.yml # Grafana Datasource Auto-Provisioning
+│   │   ├── grafana-dashboards.yml # Grafana Dashboard Auto-Provisioning
+│   │   ├── fail2ban-metrics.sh    # Cronjob-Skript: Fail2ban → textfile collector
+│   │   ├── keycloak-cluster-metrics.sh # Cronjob-Skript: Cluster-Membership → textfile collector
+│   │   └── dashboards/
+│   │       ├── keycloak-overview.json # Custom Keycloak Dashboard
+│   │       └── keycloak-jvm.json      # Custom JVM Dashboard
 │   ├── nginx/
 │   │   └── keycloak.conf.tpl   # Nginx vHost (Template)
 │   └── postgresql/
 │       └── pg_hba.conf.tpl     # PostgreSQL-Zugriff (Template)
 └── docs/
+    ├── ALERTING-RUNBOOK.md     # Alarm-Handbuch für Administratoren
     ├── PLAN.md                 # Detaillierter Umsetzungsplan mit Config-Spezifikationen
     ├── ARCHITECTURE.md
     ├── DEV-SETUP.md            # 2-Node DEV-Umgebung Anleitung
@@ -138,11 +146,14 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb|mon` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
 - **99-healthcheck.sh Pflichtparameter:** Analog zu 04-harden.sh akzeptiert das Skript `lb|keycloak|db|mon` als `$1`. Jede Rolle prüft nur die für sie relevanten Checks: `lb` = nginx + KC-Nodes + HTTPS + TLS; `keycloak` = lokal + Peer + JGroups + DB; `db` = PostgreSQL + Verbindungen + jgroups_ping-Tabelle; `mon` = Prometheus + Grafana + Alertmanager + Scrape-Targets.
 - **MON_HOST ist optional:** Die Variable steht in `.env.example`, aber NICHT in `required_vars` in `00-common.sh` – leerer Wert bedeutet keine Monitoring-Firewall-Regeln. Nie als Pflichtfeld hinzufügen.
-- **05-setup-monitoring.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. Installiert node_exporter (alle Rollen) plus rollenspezifische Exporter: postgres_exporter (db), nginx-prometheus-exporter (lb).
+- **05-setup-monitoring.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. Installiert node_exporter (alle Rollen) + Fail2ban-Metriken (textfile collector) plus rollenspezifische Exporter: postgres_exporter (db), nginx-prometheus-exporter (lb), Cluster-Membership-Metriken (keycloak).
 - **Keycloak Metrics aktiviert:** `metrics-enabled=true` in keycloak.conf.tpl. Metriken sind auf Port 9000 `/metrics` verfügbar (Micrometer/Prometheus-Format).
 - **Nginx stub_status:** In der nginx-Config als `/nginx_status` Location (nur localhost). Wird vom nginx-prometheus-exporter gescraped.
 - **Alert-Rules statisch:** `configs/monitoring/alert-rules.yml` ist KEIN Template – enthält Go-Template-Syntax (`{{ $labels.instance }}`), die envsubst zerstören würde. Wird direkt kopiert, nicht via deploy_config.
 - **Grafana aus offiziellem Repo:** Das Debian-Paket existiert nicht. Keyring von `apt.grafana.com/gpg.key` einrichten.
+- **Grafana-Dashboards auto-provisioniert:** `grafana-dashboards.yml` als Provisioning-Config, Community-Dashboards werden von grafana.com heruntergeladen, Custom-Dashboards aus `configs/monitoring/dashboards/` kopiert. Datasource-Referenz per Name (`"Prometheus"`), nicht per UID.
+- **Blackbox-Exporter:** Debian-Paket `prometheus-blackbox-exporter`, Config in `configs/monitoring/blackbox.yml`. Probt TLS gegen `https://${KC_DOMAIN}`.
+- **Textfile-Collector-Pattern:** Cronjob schreibt `.prom`-Datei nach `/var/lib/prometheus/node-exporter/`, node_exporter liest sie automatisch. Atomares Schreiben via tmpfile + mv.
 - **UFW ist nativ idempotent:** `ufw allow` fügt dieselbe Regel nicht doppelt ein. Pre-Checks via `ufw status | grep ...` sind fehleranfällig (Formatabhängig) und unnötig.
 - **grep -q in Pipes:** `grep -qF "${var}" | grep -q "${port}"` ist kaputt – `-q` unterdrückt stdout, der zweite grep prüft gegen leeren Stream. Stattdessen: `ufw allow` direkt aufrufen oder Prüfung ohne Pipe.
 - **Template-Variablen grep:** Pattern `[A-Z_]+` erfasst keine Ziffern – `KC_NODE1_IP` wird nicht gefunden. Korrektes Pattern: `[A-Z0-9_]+`.
@@ -164,6 +175,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 | mon01 | alle  | 9100 | node_exporter scrapen        |
 | mon01 | db01  | 9187 | postgres_exporter scrapen    |
 | mon01 | lb01  | 9113 | nginx-exporter scrapen       |
+| mon01 | localhost | 9115 | Blackbox-Exporter (TLS-Probe)|
 | Admin | mon01 | 3000 | Grafana UI                   |
 | Admin | mon01 | 9090 | Prometheus UI (optional)     |
 

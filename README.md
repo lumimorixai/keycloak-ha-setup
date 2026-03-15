@@ -12,8 +12,8 @@ Internet → lb01 (Nginx :443 TLS)
                     beide → db01 (PostgreSQL :5432)
            kc01 ↔ kc02 (JGroups TCP :7800)
 
-mon01 (Prometheus :9090, Grafana :3000, Alertmanager :9093)
-  └── scrapes: kc*:9000, alle:9100, db01:9187, lb01:9113
+mon01 (Prometheus :9090, Grafana :3000, Alertmanager :9093, Blackbox :9115)
+  └── scrapes: kc*:9000, alle:9100, db01:9187, lb01:9113, blackbox:9115
 ```
 
 Cluster-Discovery via JDBC_PING2 (PostgreSQL), kein Multicast erforderlich.
@@ -215,10 +215,13 @@ Richtet ein:
 - **db01:** `postgres_exporter` (:9187) für DB-Metriken
 - **lb01:** `nginx-prometheus-exporter` (:9113) für Nginx-Metriken
 - **kc01/kc02:** Keycloak-Metriken built-in auf :9000 (metrics-enabled=true)
-- **mon01:** Prometheus (:9090), Grafana (:3000), Alertmanager (:9093)
+- **mon01:** Prometheus (:9090), Grafana (:3000), Alertmanager (:9093), Blackbox-Exporter (:9115)
+- **Alle VMs:** Fail2ban-Metriken via textfile collector (Cronjob)
+- **kc01/kc02:** Cluster-Membership-Metriken via textfile collector (Cronjob)
 
 Grafana-Login: `http://mon01:3000` (Standard: admin/admin).
-Details: [Monitoring-Konzept](docs/MONITORING.md)
+Dashboards werden automatisch provisioniert (Community + Custom Keycloak).
+Details: [Monitoring-Konzept](docs/MONITORING.md) | [Alerting-Runbook](docs/ALERTING-RUNBOOK.md)
 
 ---
 
@@ -261,10 +264,14 @@ keine Backups, keine Änderungen an Konfigurationsdateien).
 │   └── 99-healthcheck.sh     Validierung – auf jeder VM (db|keycloak|lb|mon)
 ├── configs/
 │   ├── keycloak/             keycloak.conf.tpl, keycloak.service
-│   ├── monitoring/           prometheus.yml.tpl, alertmanager.yml.tpl, alert-rules.yml
+│   ├── monitoring/           prometheus.yml.tpl, alertmanager.yml.tpl, alert-rules.yml,
+│   │                         blackbox.yml, grafana-datasource.yml, grafana-dashboards.yml,
+│   │                         fail2ban-metrics.sh, keycloak-cluster-metrics.sh
+│   │   └── dashboards/       keycloak-overview.json, keycloak-jvm.json
 │   ├── nginx/                keycloak.conf.tpl (vHost)
 │   └── postgresql/           pg_hba.conf.tpl
 └── docs/
+    ├── ALERTING-RUNBOOK.md   Alarm-Handbuch fuer Administratoren
     ├── ARCHITECTURE.md       Architektur und Design-Entscheidungen
     ├── DEV-SETUP.md          2-Node DEV-Umgebung
     ├── MONITORING.md         Monitoring-Konzept (KPIs, Alerting, Deployment)
@@ -277,6 +284,7 @@ keine Backups, keine Änderungen an Konfigurationsdateien).
 
 - [Architektur & Design-Entscheidungen](docs/ARCHITECTURE.md)
 - [Monitoring-Konzept](docs/MONITORING.md)
+- [Alerting-Runbook (Alarm-Handbuch)](docs/ALERTING-RUNBOOK.md)
 - [DEV-Setup (2 VMs)](docs/DEV-SETUP.md)
 - [Detaillierter Umsetzungsplan](docs/PLAN.md)
 - [Rollback-Verfahren](docs/ROLLBACK.md)

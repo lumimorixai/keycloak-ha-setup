@@ -300,14 +300,48 @@ rm -f /etc/systemd/system/nginx-exporter.service
 systemctl daemon-reload
 ```
 
+### Blackbox-Exporter deinstallieren (mon01)
+
+```bash
+systemctl stop prometheus-blackbox-exporter
+apt-get purge prometheus-blackbox-exporter
+rm -f /etc/prometheus/blackbox.yml
+```
+
+### Fail2ban-Metriken entfernen (alle VMs)
+
+```bash
+rm -f /etc/cron.d/fail2ban-metrics
+rm -f /usr/local/bin/fail2ban-metrics.sh
+rm -f /var/lib/prometheus/node-exporter/fail2ban.prom
+```
+
+### Keycloak Cluster-Metriken entfernen (kc01/kc02)
+
+```bash
+rm -f /etc/cron.d/keycloak-cluster-metrics
+rm -f /usr/local/bin/keycloak-cluster-metrics.sh
+rm -f /var/lib/prometheus/node-exporter/keycloak_cluster.prom
+```
+
+### Grafana-Dashboards entfernen (mon01)
+
+```bash
+rm -rf /var/lib/grafana/dashboards/
+rm -f /etc/grafana/provisioning/dashboards/dashboards.yml
+systemctl restart grafana-server
+```
+
 ### Monitoring-Stack komplett entfernen (mon01)
 
 ```bash
-systemctl stop prometheus grafana-server prometheus-alertmanager
-apt-get purge prometheus prometheus-alertmanager grafana
+systemctl stop prometheus grafana-server prometheus-alertmanager prometheus-blackbox-exporter
+apt-get purge prometheus prometheus-alertmanager grafana prometheus-blackbox-exporter
 rm -f /etc/prometheus/prometheus.yml /etc/prometheus/alert-rules.yml
-rm -f /etc/prometheus/alertmanager.yml
+rm -f /etc/prometheus/alertmanager.yml /etc/prometheus/blackbox.yml
 rm -f /etc/grafana/provisioning/datasources/prometheus.yml
+rm -f /etc/grafana/provisioning/dashboards/dashboards.yml
+rm -rf /var/lib/grafana/dashboards/
 ```
 
 ---
