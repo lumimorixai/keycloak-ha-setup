@@ -15,7 +15,7 @@
       {
         "name": "instance",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "datasource": "Prometheus",
         "query": "label_values(up{job=\"keycloak\"}, instance)",
         "includeAll": true,
         "multi": true,
@@ -34,7 +34,7 @@
     {
       "type": "timeseries",
       "title": "Heap Used vs. Max",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
       "fieldConfig": {
         "defaults": {
@@ -57,7 +57,7 @@
     {
       "type": "timeseries",
       "title": "Non-Heap Memory",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
       "fieldConfig": {
         "defaults": {
@@ -80,7 +80,7 @@
     {
       "type": "timeseries",
       "title": "GC-Pausen (max)",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
       "fieldConfig": {
         "defaults": {
@@ -114,7 +114,7 @@
     {
       "type": "gauge",
       "title": "Process CPU Usage",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
       "fieldConfig": {
         "defaults": {
@@ -142,7 +142,7 @@
     {
       "type": "timeseries",
       "title": "CPU Usage (Verlauf)",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
       "fieldConfig": {
         "defaults": {
@@ -166,7 +166,7 @@
     {
       "type": "timeseries",
       "title": "Live Threads",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
       "fieldConfig": {
         "defaults": {
@@ -195,7 +195,7 @@
     {
       "type": "timeseries",
       "title": "Active Connections",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
       "fieldConfig": {
         "defaults": {
@@ -218,7 +218,7 @@
     {
       "type": "timeseries",
       "title": "Pending Connections",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
       "fieldConfig": {
         "defaults": {
@@ -245,7 +245,7 @@
     {
       "type": "timeseries",
       "title": "Idle & Timeout",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
       "fieldConfig": {
         "defaults": {

@@ -15,7 +15,7 @@
       {
         "name": "instance",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "datasource": "Prometheus",
         "query": "label_values(up{job=\"keycloak\"}, instance)",
         "includeAll": true,
         "multi": true,
@@ -34,7 +34,7 @@
     {
       "type": "timeseries",
       "title": "Erfolgreiche Logins / min",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
       "fieldConfig": {
         "defaults": {
@@ -53,7 +53,7 @@
     {
       "type": "timeseries",
       "title": "Fehlgeschlagene Logins / min",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
       "fieldConfig": {
         "defaults": {
@@ -73,7 +73,7 @@
     {
       "type": "stat",
       "title": "Registrierungen (letzte Stunde)",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
       "fieldConfig": {
         "defaults": { "unit": "short" },
@@ -90,7 +90,7 @@
     {
       "type": "stat",
       "title": "Token Refreshes / min",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
       "fieldConfig": {
         "defaults": { "unit": "ops" },
@@ -107,7 +107,7 @@
     {
       "type": "stat",
       "title": "Code-to-Token / min",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 5 },
       "fieldConfig": {
         "defaults": { "unit": "ops" },
@@ -124,7 +124,7 @@
     {
       "type": "stat",
       "title": "Login-Versuche gesamt / min",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 5 },
       "fieldConfig": {
         "defaults": { "unit": "ops" },
@@ -147,7 +147,7 @@
     {
       "type": "timeseries",
       "title": "Token-Endpoint p95 Latenz",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
       "fieldConfig": {
         "defaults": {
@@ -174,7 +174,7 @@
     {
       "type": "timeseries",
       "title": "Request-Rate nach Status",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
       "fieldConfig": {
         "defaults": {
@@ -202,7 +202,7 @@
     {
       "type": "timeseries",
       "title": "Request-Latenz (avg)",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
       "fieldConfig": {
         "defaults": {
@@ -227,7 +227,7 @@
     {
       "type": "stat",
       "title": "Cluster Nodes UP",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 6, "w": 6, "x": 0, "y": 19 },
       "fieldConfig": {
         "defaults": {
@@ -253,7 +253,7 @@
     {
       "type": "stat",
       "title": "Node-Status",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 6, "w": 6, "x": 6, "y": 19 },
       "fieldConfig": {
         "defaults": {
@@ -275,7 +275,7 @@
     {
       "type": "stat",
       "title": "Uptime",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 6, "w": 6, "x": 12, "y": 19 },
       "fieldConfig": {
         "defaults": { "unit": "dtdurations" },
@@ -292,7 +292,7 @@
     {
       "type": "timeseries",
       "title": "Keycloak Target Health",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": "Prometheus",
       "gridPos": { "h": 6, "w": 6, "x": 18, "y": 19 },
       "fieldConfig": {
         "defaults": {
