@@ -133,7 +133,6 @@ case "${vm_role}" in
 
         # Environment-File mit DATA_SOURCE_NAME (enthält DB-Passwort)
         # Passwort URL-encoden: Sonderzeichen wie / @ : etc. brechen die URI-Syntax
-        local db_password_encoded
         db_password_encoded="$(printf '%s' "${DB_PASSWORD}" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))')"
 
         tmp_env="$(mktemp)"
