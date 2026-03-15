@@ -14,7 +14,9 @@
 #   6. alertmanager.yml aus Template deployen
 #   7. Alert-Rules deployen (statische Datei)
 #   8. Grafana Datasource auto-provisioning
-#   9. Services aktivieren und starten
+#   9. Grafana Dashboard-Provisioning konfigurieren
+#  10. Dashboards deployen (Community-Download + Custom)
+#  11. Services aktivieren und starten
 # ==============================================================================
 
 set -euo pipefail
@@ -39,11 +41,60 @@ readonly GRAFANA_DS_SRC="${REPO_DIR}/configs/monitoring/grafana-datasource.yml"
 readonly GRAFANA_DS_DST="/etc/grafana/provisioning/datasources/prometheus.yml"
 readonly GRAFANA_KEYRING="/usr/share/keyrings/grafana-keyring.gpg"
 readonly GRAFANA_SOURCES="/etc/apt/sources.list.d/grafana.list"
+readonly GRAFANA_DASH_PROV_SRC="${REPO_DIR}/configs/monitoring/grafana-dashboards.yml"
+readonly GRAFANA_DASH_PROV_DST="/etc/grafana/provisioning/dashboards/default.yml"
+readonly GRAFANA_DASH_DIR="/var/lib/grafana/dashboards"
+readonly CUSTOM_DASH_SRC="${REPO_DIR}/configs/monitoring/dashboards"
+
+# Community-Dashboard-IDs (grafana.com)
+readonly -a COMMUNITY_DASHBOARDS=(
+    "1860:node-exporter-full"
+    "9628:postgresql"
+    "12708:nginx"
+)
 
 # envsubst-Variablen für prometheus.yml (nur .env-Variablen ersetzen)
 readonly PROM_ENVSUBST_VARS='${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_MGMT_PORT} ${DB_HOST} ${LB_HOST}'
 # envsubst-Variablen für alertmanager.yml
 readonly AM_ENVSUBST_VARS='${ACME_EMAIL}'
+
+# ==============================================================================
+# Hilfsfunktionen
+# ==============================================================================
+
+# Community-Dashboard von grafana.com herunterladen und Datasource normalisieren
+download_community_dashboard() {
+    local dashboard_id="${1}"
+    local target_file="${2}"
+    local api_url="https://grafana.com/api/dashboards/${dashboard_id}/revisions/latest/download"
+
+    if [[ -f "${target_file}" ]]; then
+        log_info "Community-Dashboard bereits vorhanden: ${target_file}"
+        return 0
+    fi
+
+    log_info "Community-Dashboard herunterladen: ID ${dashboard_id} → ${target_file}"
+    local tmp_file
+    tmp_file="$(mktemp)"
+
+    if ! curl -fsSL "${api_url}" -o "${tmp_file}"; then
+        log_warn "Download fehlgeschlagen: Dashboard ID ${dashboard_id} – übersprungen"
+        rm -f "${tmp_file}"
+        return 0
+    fi
+
+    # id auf null setzen, Datasource auf unsere Prometheus-UID normalisieren
+    if command -v jq &>/dev/null; then
+        jq '.id = null' "${tmp_file}" > "${target_file}"
+        rm -f "${tmp_file}"
+    else
+        mv "${tmp_file}" "${target_file}"
+    fi
+
+    chown grafana:grafana "${target_file}"
+    chmod 0640 "${target_file}"
+    log_info "Community-Dashboard deployed: ${target_file}"
+}
 
 # ==============================================================================
 # Voraussetzungen
@@ -55,36 +106,36 @@ require_root
 log_info "=== Monitoring-Stack Setup startet ==="
 
 # ==============================================================================
-# Schritt 1/9: node_exporter auf mon01 selbst installieren
+# Schritt 1/11: node_exporter auf mon01 selbst installieren
 # ==============================================================================
 # prometheus.yml.tpl hat localhost:9100 als Target – node_exporter muss lokal laufen.
 
-log_info "--- Schritt 1/9: node_exporter installieren ---"
+log_info "--- Schritt 1/11: node_exporter installieren ---"
 
 ensure_package prometheus-node-exporter
 ensure_service prometheus-node-exporter
 
 # ==============================================================================
-# Schritt 2/9: Prometheus installieren
+# Schritt 2/11: Prometheus installieren
 # ==============================================================================
 
-log_info "--- Schritt 2/9: Prometheus installieren ---"
+log_info "--- Schritt 2/11: Prometheus installieren ---"
 
 ensure_package prometheus
 
 # ==============================================================================
-# Schritt 3/9: Alertmanager installieren
+# Schritt 3/11: Alertmanager installieren
 # ==============================================================================
 
-log_info "--- Schritt 3/9: Alertmanager installieren ---"
+log_info "--- Schritt 3/11: Alertmanager installieren ---"
 
 ensure_package prometheus-alertmanager
 
 # ==============================================================================
-# Schritt 4/9: Grafana installieren (offizielles Repo)
+# Schritt 4/11: Grafana installieren (offizielles Repo)
 # ==============================================================================
 
-log_info "--- Schritt 4/9: Grafana installieren ---"
+log_info "--- Schritt 4/11: Grafana installieren ---"
 
 ensure_package curl gnupg apt-transport-https jq
 
@@ -116,10 +167,10 @@ fi
 ensure_package grafana
 
 # ==============================================================================
-# Schritt 5/9: prometheus.yml aus Template deployen
+# Schritt 5/11: prometheus.yml aus Template deployen
 # ==============================================================================
 
-log_info "--- Schritt 5/9: prometheus.yml deployen ---"
+log_info "--- Schritt 5/11: prometheus.yml deployen ---"
 
 prom_changed=0
 if [[ ! -f "${PROM_CONF}" ]] \
@@ -132,10 +183,10 @@ fi
 deploy_config "${PROM_CONF_TPL}" "${PROM_CONF}" "prometheus:prometheus" "0640" "${PROM_ENVSUBST_VARS}"
 
 # ==============================================================================
-# Schritt 6/9: alertmanager.yml aus Template deployen
+# Schritt 6/11: alertmanager.yml aus Template deployen
 # ==============================================================================
 
-log_info "--- Schritt 6/9: alertmanager.yml deployen ---"
+log_info "--- Schritt 6/11: alertmanager.yml deployen ---"
 
 am_changed=0
 if [[ ! -f "${AM_CONF}" ]] \
@@ -148,10 +199,10 @@ fi
 deploy_config "${AM_CONF_TPL}" "${AM_CONF}" "prometheus:prometheus" "0640" "${AM_ENVSUBST_VARS}"
 
 # ==============================================================================
-# Schritt 7/9: Alert-Rules deployen (statische Datei, kein envsubst)
+# Schritt 7/11: Alert-Rules deployen (statische Datei, kein envsubst)
 # ==============================================================================
 
-log_info "--- Schritt 7/9: Alert-Rules deployen ---"
+log_info "--- Schritt 7/11: Alert-Rules deployen ---"
 
 rules_changed=0
 if [[ ! -f "${ALERT_RULES_DST}" ]] \
@@ -176,10 +227,10 @@ if command -v promtool &>/dev/null; then
 fi
 
 # ==============================================================================
-# Schritt 8/9: Grafana Datasource auto-provisioning
+# Schritt 8/11: Grafana Datasource auto-provisioning
 # ==============================================================================
 
-log_info "--- Schritt 8/9: Grafana Datasource konfigurieren ---"
+log_info "--- Schritt 8/11: Grafana Datasource konfigurieren ---"
 
 # Provisioning-Verzeichnis sicherstellen
 if [[ ! -d "$(dirname "${GRAFANA_DS_DST}")" ]]; then
@@ -201,10 +252,75 @@ else
 fi
 
 # ==============================================================================
-# Schritt 9/9: Services aktivieren und starten
+# Schritt 9/11: Grafana Dashboard-Provisioning konfigurieren
 # ==============================================================================
 
-log_info "--- Schritt 9/9: Services aktivieren ---"
+log_info "--- Schritt 9/11: Grafana Dashboard-Provisioning ---"
+
+grafana_changed=0
+
+# Provisioning-Verzeichnis sicherstellen
+if [[ ! -d "$(dirname "${GRAFANA_DASH_PROV_DST}")" ]]; then
+    mkdir -p "$(dirname "${GRAFANA_DASH_PROV_DST}")"
+fi
+
+if [[ -f "${GRAFANA_DASH_PROV_DST}" ]] \
+    && diff -q "${GRAFANA_DASH_PROV_SRC}" "${GRAFANA_DASH_PROV_DST}" &>/dev/null; then
+    log_info "Dashboard-Provisioning bereits aktuell: ${GRAFANA_DASH_PROV_DST}"
+else
+    if [[ -f "${GRAFANA_DASH_PROV_DST}" ]]; then
+        backup_file "${GRAFANA_DASH_PROV_DST}"
+    fi
+    cp "${GRAFANA_DASH_PROV_SRC}" "${GRAFANA_DASH_PROV_DST}"
+    chown grafana:grafana "${GRAFANA_DASH_PROV_DST}"
+    chmod 0640 "${GRAFANA_DASH_PROV_DST}"
+    log_info "Dashboard-Provisioning deployed: ${GRAFANA_DASH_PROV_DST}"
+    grafana_changed=1
+fi
+
+# ==============================================================================
+# Schritt 10/11: Dashboards deployen (Community-Download + Custom)
+# ==============================================================================
+
+log_info "--- Schritt 10/11: Dashboards deployen ---"
+
+# Dashboard-Verzeichnis anlegen
+if [[ ! -d "${GRAFANA_DASH_DIR}" ]]; then
+    mkdir -p "${GRAFANA_DASH_DIR}"
+    chown grafana:grafana "${GRAFANA_DASH_DIR}"
+    log_info "Dashboard-Verzeichnis angelegt: ${GRAFANA_DASH_DIR}"
+fi
+
+# Community-Dashboards von grafana.com herunterladen
+for entry in "${COMMUNITY_DASHBOARDS[@]}"; do
+    dash_id="${entry%%:*}"
+    dash_name="${entry#*:}"
+    download_community_dashboard "${dash_id}" "${GRAFANA_DASH_DIR}/${dash_name}.json"
+done
+
+# Custom-Dashboards aus dem Repo kopieren
+if [[ -d "${CUSTOM_DASH_SRC}" ]]; then
+    for src_file in "${CUSTOM_DASH_SRC}"/*.json; do
+        [[ -f "${src_file}" ]] || continue
+        dst_file="${GRAFANA_DASH_DIR}/$(basename "${src_file}")"
+        if [[ -f "${dst_file}" ]] \
+            && diff -q "${src_file}" "${dst_file}" &>/dev/null; then
+            log_info "Custom-Dashboard bereits aktuell: ${dst_file}"
+        else
+            cp "${src_file}" "${dst_file}"
+            chown grafana:grafana "${dst_file}"
+            chmod 0640 "${dst_file}"
+            log_info "Custom-Dashboard deployed: ${dst_file}"
+            grafana_changed=1
+        fi
+    done
+fi
+
+# ==============================================================================
+# Schritt 11/11: Services aktivieren und starten
+# ==============================================================================
+
+log_info "--- Schritt 11/11: Services aktivieren ---"
 
 ensure_service prometheus
 ensure_service prometheus-alertmanager
@@ -224,6 +340,13 @@ if [[ "${am_changed}" -eq 1 ]] \
     systemctl reload prometheus-alertmanager 2>/dev/null \
         || systemctl restart prometheus-alertmanager
     log_info "Alertmanager neu geladen (Konfiguration geändert)."
+fi
+
+# Grafana bei Dashboard/Datasource-Änderung neu starten
+if [[ "${grafana_changed}" -eq 1 ]] \
+    && systemctl is-active --quiet grafana-server 2>/dev/null; then
+    systemctl restart grafana-server
+    log_info "Grafana neu gestartet (Dashboard-Konfiguration geändert)."
 fi
 
 # ==============================================================================
