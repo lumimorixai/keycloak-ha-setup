@@ -132,10 +132,14 @@ case "${vm_role}" in
         fi
 
         # Environment-File mit DATA_SOURCE_NAME (enthält DB-Passwort)
+        # Passwort URL-encoden: Sonderzeichen wie / @ : etc. brechen die URI-Syntax
+        local db_password_encoded
+        db_password_encoded="$(printf '%s' "${DB_PASSWORD}" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))')"
+
         tmp_env="$(mktemp)"
         cat > "${tmp_env}" <<EOF
 # postgres_exporter – generiert von 05-setup-monitoring.sh
-DATA_SOURCE_NAME=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=disable
+DATA_SOURCE_NAME=postgresql://${DB_USER}:${db_password_encoded}@${DB_HOST}:5432/${DB_NAME}?sslmode=disable
 EOF
 
         if [[ -f "${PG_EXPORTER_ENV}" ]] \
