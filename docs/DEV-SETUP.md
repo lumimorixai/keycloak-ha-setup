@@ -24,7 +24,7 @@ Blackbox-Exporter auf lb01 fuer TLS-Zertifikatsueberwachung.
 |---|---|---|
 | VMs | db01, kc01, kc02, lb01 (+mon01) | app01, lb01 |
 | Keycloak | 2 Nodes, HA-Cluster | 1 Node, kein Cluster |
-| PostgreSQL | Eigene VM (db01) | Co-located auf app01 |
+| PostgreSQL | Eigene VM (db01) | Co-located auf app01 (DB_HOST = IP von app01) |
 | JGroups | TCP :7800 zwischen kc01↔kc02 | Nicht benötigt |
 | Monitoring | Dedizierte mon01 | Co-located auf lb01 |
 | JVM Heap | `-Xms512m -Xmx2048m` | `-Xms256m -Xmx1024m` |
@@ -47,6 +47,7 @@ cp .env.dev.example .env
 
 Pflichtfelder ausfüllen:
 - `KC_NODE1_IP` und `KC_NODE2_IP`: Beide auf die IP von app01 setzen
+- `DB_HOST`: Ebenfalls IP von app01 (nicht `127.0.0.1` – Prometheus auf lb01 muss die DB-Exporter scrapen koennen)
 - `LB_HOST`: IP von lb01
 - `DB_PASSWORD`: `openssl rand -base64 24`
 - `KC_ADMIN_PASSWORD`: `openssl rand -base64 24`
