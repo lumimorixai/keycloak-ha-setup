@@ -66,6 +66,9 @@ readonly PG_EXPORTER_BIN="/usr/local/bin/postgres_exporter"
 readonly PG_EXPORTER_ENV="/etc/default/postgres_exporter"
 readonly PG_EXPORTER_USER="postgres_exporter"
 
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly REPO_DIR
+
 readonly FAIL2BAN_METRICS_SRC="${REPO_DIR}/configs/monitoring/fail2ban-metrics.sh"
 readonly FAIL2BAN_METRICS_DST="/usr/local/bin/fail2ban-metrics.sh"
 readonly FAIL2BAN_CRON="/etc/cron.d/fail2ban-metrics"
