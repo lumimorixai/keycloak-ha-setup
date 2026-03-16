@@ -93,8 +93,8 @@ groups:
 
       - alert: DBConnectionsNahAmLimit
         expr: |
-          pg_stat_activity_count{datname!=""}
-          / on() pg_settings_max_connections > 0.8
+          sum(pg_stat_activity_count{datname!=""})
+          / on() group_left() pg_settings_max_connections > 0.8
         for: 5m
         labels:
           severity: warning
