@@ -342,11 +342,26 @@ EOF
         log_info "--- Schritt 3: Keycloak Cluster-Metrics Textfile-Collector ---"
         log_info "KC-Metriken sind built-in auf Port ${KC_MGMT_PORT} (/metrics)."
 
-        # Cluster-Membership als Textfile-Metrik exportieren
-        ensure_package curl jq
+        # Cluster-Membership aus JDBC_PING2-Tabelle lesen – braucht psql
+        ensure_package postgresql-client
 
         # Textfile-Collector-Verzeichnis sicherstellen
         mkdir -p /var/lib/prometheus/node-exporter
+
+        # Env-Datei mit DB-Credentials fuer Cluster-Metrics-Skript
+        kc_cluster_env_file="/etc/default/keycloak-cluster-metrics"
+        kc_cluster_env_content="KC_CLUSTER_DB_HOST=${DB_HOST}
+KC_CLUSTER_DB_USER=${DB_USER}
+KC_CLUSTER_DB_PASS=${DB_PASSWORD}
+KC_CLUSTER_DB_NAME=${DB_NAME}"
+        if [[ -f "${kc_cluster_env_file}" ]] \
+            && printf '%s' "${kc_cluster_env_content}" | diff -q - "${kc_cluster_env_file}" &>/dev/null; then
+            log_info "Cluster-Metrics Env-Datei bereits aktuell."
+        else
+            printf '%s' "${kc_cluster_env_content}" > "${kc_cluster_env_file}"
+            chmod 0600 "${kc_cluster_env_file}"
+            log_info "Cluster-Metrics Env-Datei installiert: ${kc_cluster_env_file}"
+        fi
 
         # Skript installieren
         if [[ -f "${KC_CLUSTER_METRICS_DST}" ]] \
