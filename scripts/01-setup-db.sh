@@ -126,11 +126,13 @@ user_exists="$(sudo -u postgres psql -Atc \
 if [[ "${user_exists}" == "1" ]]; then
     log_info "DB-User bereits vorhanden: ${DB_USER}"
 else
-    # Passwort via \set-Variable übergeben, um SQL-Injection bei Sonderzeichen zu vermeiden
+    # Passwort via psql-Variablen und stdin – \set-Syntax funktioniert nicht mit -c
     sudo -u postgres psql \
         --set=db_user="${DB_USER}" \
         --set=db_password="${DB_PASSWORD}" \
-        -c "CREATE ROLE :\"db_user\" WITH LOGIN PASSWORD :'db_password';"
+        <<'EOSQL'
+CREATE ROLE :"db_user" WITH LOGIN PASSWORD :'db_password';
+EOSQL
     log_info "DB-User angelegt: ${DB_USER}"
 fi
 
