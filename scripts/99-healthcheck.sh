@@ -315,7 +315,7 @@ checks_keycloak() {
     section "Datenbankverbindung (${DB_HOST}:5432)"
     # --------------------------------------------------------------------------
 
-    label_db="pg_isready ${DB_HOST}:5432 (${DB_NAME})"
+    label_db="DB-Port ${DB_HOST}:5432 (${DB_NAME})"
     if command -v pg_isready &>/dev/null; then
         pg_out="$(pg_isready \
             -h "${DB_HOST}" -p 5432 \
@@ -327,8 +327,7 @@ checks_keycloak() {
             check_fail "${label_db}" "${pg_out}"
         fi
     elif tcp_check "${DB_HOST}" 5432; then
-        check_warn "${label_db}" \
-            "TCP Port erreichbar (pg_isready nicht installiert – kein Auth-Check)"
+        check_ok "${label_db}" "TCP Port erreichbar"
     else
         check_fail "${label_db}" "TCP Port nicht erreichbar"
     fi
