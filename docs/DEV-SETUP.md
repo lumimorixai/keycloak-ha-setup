@@ -123,6 +123,11 @@ app01:9000, app01:9100, app01:9187, localhost:9113, localhost:9100.
 **Hinweis:** Der Alert `KCClusterMembershipBroken` feuert im DEV-Setup dauerhaft
 (siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)).
 
+**Test der Login-Metriken:** Ein Login an der Admin-Console zaehlt als
+`realm="master", client_id="security-admin-console"` – gut um zu pruefen, *dass* die
+Metrik fliesst, aber es ist kein End-User-Login. Fuer echte User-Events im Ziel-Realm
+anmelden, z.B. ueber `https://<KC_DOMAIN>/realms/<realm>/account`.
+
 Details zu KPIs, Dashboards und Alerting siehe [MONITORING.md](MONITORING.md).
 Alarmbeschreibungen und Maßnahmen siehe [ALERTING-RUNBOOK.md](ALERTING-RUNBOOK.md).
 

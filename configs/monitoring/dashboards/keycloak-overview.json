@@ -2,7 +2,7 @@
   "id": null,
   "uid": "keycloak-overview",
   "title": "Keycloak Overview",
-  "description": "Login-Rate, Registrierungen, Fehler, Token-Latenz, Cluster Health",
+  "description": "Login-Rate, Registrierungen, Fehler, Token-Latenz, Cluster Health. Filter oben: Realm-Auswahl und Client-Filter (Default: ohne Keycloak-Admin-Console, also nur End-User-Logins).",
   "tags": ["keycloak"],
   "timezone": "browser",
   "schemaVersion": 39,
@@ -21,6 +21,30 @@
         "multi": true,
         "current": { "selected": true, "text": "All", "value": "$__all" },
         "refresh": 2
+      },
+      {
+        "name": "realm",
+        "label": "Realm",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(realm)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "refresh": 2
+      },
+      {
+        "name": "client_exclude",
+        "label": "Client-Filter",
+        "type": "custom",
+        "description": "Blendet die Keycloak-Admin-Console aus, damit nur echte End-User-Logins gezaehlt werden.",
+        "query": "Nur End-User : security-admin-console, Alle Clients : __kein_client__",
+        "options": [
+          { "selected": true, "text": "Nur End-User", "value": "security-admin-console" },
+          { "selected": false, "text": "Alle Clients", "value": "__kein_client__" }
+        ],
+        "current": { "selected": true, "text": "Nur End-User", "value": "security-admin-console" }
       }
     ]
   },
@@ -45,7 +69,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", event=\"login\", error=\"\"}[5m])) by (realm) * 60",
+          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=\"login\", error=\"\"}[5m])) by (realm) * 60",
           "legendFormat": "{{ realm }}"
         }
       ]
@@ -65,7 +89,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", event=~\"login|login_error\", error!=\"\"}[5m])) by (realm) * 60",
+          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=~\"login|login_error\", error!=\"\"}[5m])) by (realm) * 60",
           "legendFormat": "{{ realm }}"
         }
       ]
@@ -81,7 +105,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(keycloak_user_events_total{instance=~\"$instance\", event=\"register\", error=\"\"}[1h]))",
+          "expr": "sum(increase(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=\"register\", error=\"\"}[1h]))",
           "legendFormat": "Registrierungen"
         }
       ],
@@ -98,7 +122,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", event=\"refresh_token\", error=\"\"}[5m])) * 60",
+          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=\"refresh_token\", error=\"\"}[5m])) * 60",
           "legendFormat": "Refreshes"
         }
       ],
@@ -115,7 +139,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", event=\"code_to_token\", error=\"\"}[5m])) * 60",
+          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=\"code_to_token\", error=\"\"}[5m])) * 60",
           "legendFormat": "Exchanges"
         }
       ],
@@ -132,7 +156,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", event=~\"login|login_error\"}[5m])) * 60",
+          "expr": "sum(rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=~\"login|login_error\"}[5m])) * 60",
           "legendFormat": "Versuche"
         }
       ],
@@ -140,23 +164,68 @@
     },
     {
       "type": "row",
-      "title": "User-Bestand",
+      "title": "Aufschluesselung nach Realm & Client",
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
       "collapsed": false
     },
     {
+      "type": "timeseries",
+      "title": "Logins / min nach Client",
+      "description": "Zeigt, ueber welche Anwendung sich User anmelden. security-admin-console = Keycloak-Verwaltung, account-console = Self-Service, alles andere = deine Clients.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "fillOpacity": 20, "lineWidth": 2, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (client_id) (rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=\"login\", error=\"\"}[5m])) * 60",
+          "legendFormat": "{{ client_id }}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Logins / min nach Realm",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "fillOpacity": 20, "lineWidth": 2, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (realm) (rate(keycloak_user_events_total{instance=~\"$instance\", realm=~\"$realm\", client_id!~\"$client_exclude\", event=\"login\", error=\"\"}[5m])) * 60",
+          "legendFormat": "{{ realm }}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "User-Bestand",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "collapsed": false
+    },
+    {
       "type": "stat",
-      "title": "User gesamt (alle Realms)",
+      "title": "User gesamt (Realm-Auswahl)",
       "description": "Quelle: Textfile-Collector keycloak-user-metrics.sh (SQL auf user_entity), nicht der Keycloak-/metrics-Endpoint.",
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 10 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 18 },
       "fieldConfig": {
         "defaults": { "unit": "short" },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "sum(keycloak_users_total)",
+          "expr": "sum(keycloak_users_total{realm=~\"$realm\"})",
           "legendFormat": "User"
         }
       ],
@@ -166,7 +235,7 @@
       "type": "timeseries",
       "title": "User pro Realm",
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 10 },
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 18 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -176,7 +245,7 @@
       },
       "targets": [
         {
-          "expr": "keycloak_users_total",
+          "expr": "keycloak_users_total{realm=~\"$realm\"}",
           "legendFormat": "{{ realm }}"
         }
       ]
@@ -184,14 +253,14 @@
     {
       "type": "row",
       "title": "Performance",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
       "collapsed": false
     },
     {
       "type": "timeseries",
       "title": "Token-Endpoint p95 Latenz",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 25 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -218,7 +287,7 @@
       "type": "timeseries",
       "title": "Request-Rate nach Status",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 17 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 25 },
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
@@ -246,7 +315,7 @@
       "type": "timeseries",
       "title": "Request-Latenz (avg)",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 17 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 25 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -264,14 +333,14 @@
     {
       "type": "row",
       "title": "Cluster Health",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
       "collapsed": false
     },
     {
       "type": "stat",
       "title": "Cluster Nodes UP",
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 26 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 34 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -297,7 +366,7 @@
       "type": "stat",
       "title": "Node-Status",
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 26 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 34 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -319,7 +388,7 @@
       "type": "stat",
       "title": "Uptime",
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 26 },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 34 },
       "fieldConfig": {
         "defaults": { "unit": "dtdurations" },
         "overrides": []
@@ -336,7 +405,7 @@
       "type": "timeseries",
       "title": "Keycloak Target Health",
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 26 },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 34 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
