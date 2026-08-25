@@ -39,6 +39,7 @@ Zabbix, keine Zabbix-Agents auf den VMs. Siehe Abschnitt
 | nginx-prometheus-exporter | lb01 | 9113 | Request-Rate, Status-Codes |
 | Fail2ban-Metriken (textfile) | alle | – | `fail2ban_banned_current` via Cronjob (2min) |
 | Cluster-Membership (textfile) | kc01, kc02 | – | `keycloak_cluster_nodes` via Cronjob (1min) |
+| User-Bestand (textfile) | kc01, kc02 | – | `keycloak_users_total` via Cronjob (5min) |
 
 ### Komponenten auf mon01
 
@@ -59,21 +60,33 @@ Keycloak 26 liefert mit `metrics-enabled=true` automatisch Micrometer-Metriken.
 
 #### User-bezogen
 
+> **Wichtig:** User-Events erfordern zusaetzlich `event-metrics-user-enabled=true`
+> in `keycloak.conf` (plus `kc.sh build` + Neustart). `metrics-enabled=true` allein
+> liefert nur JVM-, HTTP- und Datasource-Metriken.
+>
+> Alle User-Events landen in **einer** Metrik. Die frueher hier dokumentierten Namen
+> (`keycloak_successful_login`, `keycloak_failed_login_attempts`, ...) stammen aus der
+> Wildfly-Extension `keycloak-metrics-spi` und existieren in der Quarkus-Distribution nicht.
+
 | Metrik | Typ | Was sie zeigt |
 |---|---|---|
-| `keycloak_registrations` | Counter | Neue User-Registrierungen (pro Realm, Client) |
-| `keycloak_login_attempts` | Counter | Login-Versuche gesamt |
-| `keycloak_successful_login` | Counter | Erfolgreiche Logins |
-| `keycloak_failed_login_attempts` | Counter | Fehlgeschlagene Logins (Brute-Force-Indikator) |
-| `keycloak_refresh_tokens` | Counter | Token-Refreshes (Indikator fuer aktive Sessions) |
-| `keycloak_client_initiated_account_linking` | Counter | Account-Linking-Events |
-| `keycloak_code_to_tokens` | Counter | Authorization-Code zu Token Exchanges |
+| `keycloak_user_events_total` | Counter | Alle User-Events, unterschieden ueber Labels |
 
-**Wie viele User neu dazugekommen?** `rate(keycloak_registrations[1h])` in Prometheus/Grafana.
+Labels: `realm`, `event` (z.B. `login`, `logout`, `register`, `refresh_token`, `code_to_token`),
+`error` (Fehlercode oder leer bei Erfolg), sowie `client_id` und `idp` – letztere beide nur
+wenn via `event-metrics-user-tags=realm,clientId,idp` aktiviert.
 
-**Wie viele Logins?** `rate(keycloak_successful_login[5m])` fuer Logins/Sekunde.
+| Frage | PromQL |
+|---|---|
+| Logins pro Sekunde | `sum(rate(keycloak_user_events_total{event="login", error=""}[5m]))` |
+| Fehlgeschlagene Logins | `sum(rate(keycloak_user_events_total{event=~"login\|login_error", error!=""}[5m]))` |
+| Neue User (letzte Stunde) | `sum(increase(keycloak_user_events_total{event="register", error=""}[1h]))` |
+| Aktive Sessions (Indikator) | `sum(rate(keycloak_user_events_total{event="refresh_token"}[5m]))` |
+| Logins nach Client | `sum by (client_id) (rate(keycloak_user_events_total{event="login", error=""}[5m]))` |
 
-**Wie viele User weg?** Keycloak liefert keine Delete-Metrik out-of-the-box. Siehe Abschnitt [User-Abgaenge tracken](#user-abgaenge-tracken).
+**Wie viele User gibt es insgesamt?** Keycloak liefert dafuer keine Metrik – weder Bestand
+noch Loeschungen. Dieses Setup ergaenzt sie via Textfile-Collector: `keycloak_users_total{realm="..."}`
+(siehe [User-Bestand und -Abgaenge tracken](#user-bestand-und--abgaenge-tracken)).
 
 #### Performance / Latenz
 
@@ -170,8 +183,8 @@ implementiert (21 Alerts in 6 Gruppen). Detaillierte Massnahmen pro Alert:
 | Alert | Bedingung | Severity | Zabbix |
 |---|---|---|---|
 | KCNodeDown | `up{job="keycloak"} == 0` fuer 2min | critical | ja |
-| LoginFehlerrateHoch | `rate(keycloak_failed_login_attempts[5m]) > 10` | warning | – |
-| BruteForceVerdacht | `rate(keycloak_failed_login_attempts[5m]) * 60 > 50` | warning | ja |
+| LoginFehlerrateHoch | `sum by (realm) (rate(keycloak_user_events_total{event=~"login\|login_error", error!=""}[5m])) > 10` | warning | – |
+| BruteForceVerdacht | `sum by (realm) (rate(keycloak_user_events_total{event=~"login\|login_error", error!=""}[5m])) * 60 > 50` | warning | ja |
 | TokenEndpointLangsam | p95 Token-Latenz > 500ms fuer 5min | warning | – |
 | DBConnectionPoolErschoepft | `hikaricp_connections_pending > 0` fuer 1min | warning | ja |
 | HoheGCPausen | `jvm_gc_pause_seconds_max > 0.5` fuer 2min | warning | – |
@@ -193,21 +206,36 @@ implementiert (21 Alerts in 6 Gruppen). Detaillierte Massnahmen pro Alert:
 
 ---
 
-## User-Abgaenge tracken
+## User-Bestand und -Abgaenge tracken
 
-Keycloak liefert keine Built-in-Metrik fuer geloeschte User. Empfehlung: zwei Ansaetze kombinieren.
+Keycloak liefert keine Built-in-Metrik fuer die Anzahl vorhandener oder geloeschter User.
+`keycloak_user_events_total{event="register"}` zaehlt ausschliesslich Neuzugaenge.
 
-### 1. Admin-Events aktivieren
+### 1. User-Bestand via Textfile-Collector (implementiert)
+
+`configs/monitoring/keycloak-user-metrics.sh` liest den Bestand alle 5 Minuten per SQL
+aus der Keycloak-DB und schreibt ihn als Gauge:
+
+```
+keycloak_users_total{realm="master"} 3
+```
+
+Installiert durch `05-setup-monitoring.sh keycloak`. Service-Accounts werden
+ausgeschlossen (`service_account_client_link IS NULL`), gezaehlt werden nur echte User.
+
+Netto-Veraenderung pro Tag: `delta(keycloak_users_total[24h])` – negativer Wert = Abgaenge.
+
+Warum SQL und nicht die Admin-API: kein Service-Account-Client, kein Token-Handling,
+keine Credentials ueber HTTP – und der Wert bleibt auch dann korrekt, wenn Keycloak
+gerade nicht laeuft. Preis: die Abfrage haengt am DB-Schema (`user_entity`), das sich
+bei Major-Upgrades aendern kann. Nach jedem KC-Major-Upgrade einmal pruefen:
+`cat /var/lib/prometheus/node-exporter/keycloak_users.prom`
+
+### 2. Admin-Events aktivieren (optional, fuer Nachvollziehbarkeit)
 
 In der Realm-Config `eventsEnabled=true` und `adminEventsEnabled=true` setzen.
 `DELETE_USER` Events tauchen im Event-Log auf und koennen via Log-Parsing oder
-Admin-API abgefragt werden.
-
-### 2. Periodischer User-Count
-
-Cronjob auf mon01, der `GET /admin/realms/{realm}/users/count` abfragt und als
-Prometheus-Gauge exposed (via Textfile-Collector in node_exporter).
-Delta zum Vortag = Netto-Veraenderung.
+Admin-API abgefragt werden – liefert das *Wer/Wann*, das ein Gauge nicht hat.
 
 ---
 
@@ -227,9 +255,9 @@ MON_HOST=<IP-von-mon01>
 
 ### Phase 1: Keycloak Metriken aktivieren (kc01, dann kc02)
 
-`metrics-enabled` wurde in `keycloak.conf.tpl` auf `true` geaendert. Das erfordert
-einen `kc.sh build` + Neustart. Das Setup-Skript erkennt die Config-Aenderung
-automatisch und fuehrt den Build aus.
+`metrics-enabled` und `event-metrics-user-enabled` wurden in `keycloak.conf.tpl` auf
+`true` gesetzt. Das erfordert einen `kc.sh build` + Neustart. Das Setup-Skript erkennt
+die Config-Aenderung automatisch und fuehrt den Build aus.
 
 ```bash
 # Auf kc01 (ZUERST – Startup-Reihenfolge beachten!):
@@ -477,7 +505,7 @@ groups:
           summary: "Keycloak Cluster-Mitgliedschaft gestoert: {{ $value }} Nodes (erwartet: 2)"
 
       - alert: BruteForceDetected
-        expr: rate(keycloak_failed_login_attempts[5m]) * 60 > 50
+        expr: sum by (realm) (rate(keycloak_user_events_total{event=~"login|login_error", error!=""}[5m])) * 60 > 50
         for: 2m
         labels:
           severity: warning

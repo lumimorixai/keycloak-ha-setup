@@ -23,22 +23,26 @@ groups:
         annotations:
           summary: "Keycloak Node {{ $labels.instance }} ist ausgefallen"
 
+      # Fehlgeschlagene Logins: Keycloak 26 liefert alle User-Events als eine
+      # Metrik keycloak_user_events_total mit den Labels event und error.
+      # event=~"login|login_error" deckt beide Schreibweisen ab, error!="" grenzt
+      # auf Fehlversuche ein. Voraussetzung: event-metrics-user-enabled=true.
       - alert: LoginFehlerrateHoch
-        expr: rate(keycloak_failed_login_attempts[5m]) > 10
+        expr: sum by (realm) (rate(keycloak_user_events_total{event=~"login|login_error", error!=""}[5m])) > 10
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Hohe Login-Fehlerrate: {{ $value | humanize }}/s auf {{ $labels.instance }}"
+          summary: "Hohe Login-Fehlerrate in Realm {{ $labels.realm }}: {{ $value | humanize }}/s"
 
       - alert: BruteForceVerdacht
-        expr: rate(keycloak_failed_login_attempts[5m]) * 60 > 50
+        expr: sum by (realm) (rate(keycloak_user_events_total{event=~"login|login_error", error!=""}[5m])) * 60 > 50
         for: 2m
         labels:
           severity: warning
           zabbix: "true"
         annotations:
-          summary: "Brute-Force vermutet: {{ $value | humanize }} fehlgeschlagene Logins/min"
+          summary: "Brute-Force vermutet in Realm {{ $labels.realm }}: {{ $value | humanize }} fehlgeschlagene Logins/min"
 
       - alert: TokenEndpointLangsam
         expr: |
