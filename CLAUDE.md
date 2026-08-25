@@ -67,6 +67,7 @@ keycloak-ha-setup/
 │   │   ├── grafana-dashboards.yml # Grafana Dashboard Auto-Provisioning
 │   │   ├── fail2ban-metrics.sh    # Cronjob-Skript: Fail2ban → textfile collector
 │   │   ├── keycloak-cluster-metrics.sh # Cronjob-Skript: Cluster-Membership → textfile collector
+│   │   ├── keycloak-user-metrics.sh    # Cronjob-Skript: User-Bestand pro Realm → textfile collector
 │   │   └── dashboards/
 │   │       ├── keycloak-overview.json # Custom Keycloak Dashboard
 │   │       └── keycloak-jvm.json      # Custom JVM Dashboard
@@ -146,8 +147,11 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **04-harden.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb|mon` als `$1`. IP-Autoerkennung wurde bewusst entfernt – sie schlägt bei Cloud-VMs mit NAT oder mehreren Interfaces lautlos fehl. Aufruf ohne Parameter bricht mit usage() ab.
 - **99-healthcheck.sh Pflichtparameter:** Analog zu 04-harden.sh akzeptiert das Skript `lb|keycloak|db|mon` als `$1`. Jede Rolle prüft nur die für sie relevanten Checks: `lb` = nginx + KC-Nodes + HTTPS + TLS; `keycloak` = lokal + Peer + JGroups + DB; `db` = PostgreSQL + Verbindungen + jgroups_ping-Tabelle; `mon` = Prometheus + Grafana + Alertmanager + Scrape-Targets.
 - **MON_HOST ist optional:** Die Variable steht in `.env.example`, aber NICHT in `required_vars` in `00-common.sh` – leerer Wert bedeutet keine Monitoring-Firewall-Regeln. Nie als Pflichtfeld hinzufügen.
-- **05-setup-monitoring.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. Installiert node_exporter (alle Rollen) + Fail2ban-Metriken (textfile collector) plus rollenspezifische Exporter: postgres_exporter (db), nginx-prometheus-exporter (lb), Cluster-Membership-Metriken (keycloak).
+- **05-setup-monitoring.sh Pflichtparameter:** Das Skript akzeptiert `db|keycloak|lb` als `$1`. Installiert node_exporter (alle Rollen) + Fail2ban-Metriken (textfile collector) plus rollenspezifische Exporter: postgres_exporter (db), nginx-prometheus-exporter (lb), Cluster-Membership- und User-Bestand-Metriken (keycloak).
 - **Keycloak Metrics aktiviert:** `metrics-enabled=true` in keycloak.conf.tpl. Metriken sind auf Port 9000 `/metrics` verfügbar (Micrometer/Prometheus-Format).
+- **User-Event-Metriken sind separat zu aktivieren:** `metrics-enabled=true` liefert NUR JVM-, HTTP- und Datasource-Metriken. Logins/Registrierungen erscheinen erst mit `event-metrics-user-enabled=true` (+ `event-metrics-user-tags=realm,clientId,idp`) in keycloak.conf.tpl – danach zwingend `kc.sh build` + Neustart.
+- **Es gibt nur EINE User-Event-Metrik:** `keycloak_user_events_total{realm,event,error,client_id,idp}`. Erfolg = `error=""`, Fehlversuch = `error!=""`. Namen wie `keycloak_successful_login`, `keycloak_failed_login_attempts`, `keycloak_registrations` stammen aus der Wildfly-Extension `keycloak-metrics-spi` und existieren in der Quarkus-Distro NICHT – Queries damit liefern stillschweigend leere Panels und Alerts, die nie feuern.
+- **Userzahl ist keine Keycloak-Metrik:** Weder Bestand noch Löschungen werden exportiert. Der Bestand kommt aus `configs/monitoring/keycloak-user-metrics.sh` (SQL auf `user_entity`, Textfile-Collector, alle 5min) als `keycloak_users_total{realm="..."}`. Nach KC-Major-Upgrades Schema-Annahme prüfen.
 - **Nginx stub_status:** In der nginx-Config als `/nginx_status` Location (nur localhost). Wird vom nginx-prometheus-exporter gescraped.
 - **Alert-Rules statisch:** `configs/monitoring/alert-rules.yml` ist KEIN Template – enthält Go-Template-Syntax (`{{ $labels.instance }}`), die envsubst zerstören würde. Wird direkt kopiert, nicht via deploy_config.
 - **Grafana aus offiziellem Repo:** Das Debian-Paket existiert nicht. Keyring von `apt.grafana.com/gpg.key` einrichten.

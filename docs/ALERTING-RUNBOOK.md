@@ -196,7 +196,7 @@ und die empfohlenen Massnahmen. Alerts sind nach Severity sortiert.
 
 | | |
 |---|---|
-| **Bedingung** | `rate(keycloak_failed_login_attempts[5m]) > 10` fuer > 2min |
+| **Bedingung** | `sum by (realm) (rate(keycloak_user_events_total{event=~"login\|login_error", error!=""}[5m])) > 10` fuer > 2min |
 | **Bedeutung** | Ungewoehnlich viele fehlgeschlagene Login-Versuche |
 | **Auswirkung** | Moeglicherweise Brute-Force-Angriff oder fehlerhafte Client-Konfiguration |
 
@@ -214,7 +214,7 @@ und die empfohlenen Massnahmen. Alerts sind nach Severity sortiert.
 
 | | |
 |---|---|
-| **Bedingung** | `rate(keycloak_failed_login_attempts[5m]) * 60 > 50` fuer > 2min |
+| **Bedingung** | `sum by (realm) (rate(keycloak_user_events_total{event=~"login\|login_error", error!=""}[5m])) * 60 > 50` fuer > 2min |
 | **Bedeutung** | Mehr als 50 fehlgeschlagene Logins pro Minute – starker Brute-Force-Verdacht |
 | **Auswirkung** | Angriff laeuft aktiv, Accounts koennten kompromittiert werden |
 

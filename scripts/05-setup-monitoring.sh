@@ -10,7 +10,8 @@
 #
 # vm-typ (Pflichtparameter):
 #   db        – node_exporter + postgres_exporter
-#   keycloak  – node_exporter (KC-Metriken sind built-in auf Port 9000)
+#   keycloak  – node_exporter + Cluster-/User-Metriken (KC-Metriken sind
+#               built-in auf Port 9000)
 #   lb        – node_exporter + nginx-prometheus-exporter
 #
 # Was dieses Skript tut (alle Schritte idempotent):
@@ -76,6 +77,10 @@ readonly FAIL2BAN_CRON="/etc/cron.d/fail2ban-metrics"
 readonly KC_CLUSTER_METRICS_SRC="${REPO_DIR}/configs/monitoring/keycloak-cluster-metrics.sh"
 readonly KC_CLUSTER_METRICS_DST="/usr/local/bin/keycloak-cluster-metrics.sh"
 readonly KC_CLUSTER_CRON="/etc/cron.d/keycloak-cluster-metrics"
+
+readonly KC_USER_METRICS_SRC="${REPO_DIR}/configs/monitoring/keycloak-user-metrics.sh"
+readonly KC_USER_METRICS_DST="/usr/local/bin/keycloak-user-metrics.sh"
+readonly KC_USER_CRON="/etc/cron.d/keycloak-user-metrics"
 
 readonly NGINX_EXPORTER_VERSION="1.4.0"
 readonly NGINX_EXPORTER_URL="https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v${NGINX_EXPORTER_VERSION}/nginx-prometheus-exporter_${NGINX_EXPORTER_VERSION}_linux_amd64.tar.gz"
@@ -388,6 +393,49 @@ KC_CLUSTER_DB_NAME=${DB_NAME}"
         # Einmal sofort ausführen
         "${KC_CLUSTER_METRICS_DST}" || true
         log_info "Keycloak-Cluster-Metrics initial geschrieben."
+
+        log_info "--- Schritt 4: Keycloak User-Metrics Textfile-Collector ---"
+
+        # Env-Datei mit DB-Credentials fuer User-Metrics-Skript
+        kc_user_env_file="/etc/default/keycloak-user-metrics"
+        kc_user_env_content="KC_USER_DB_HOST=${DB_HOST}
+KC_USER_DB_USER=${DB_USER}
+KC_USER_DB_PASS=${DB_PASSWORD}
+KC_USER_DB_NAME=${DB_NAME}"
+        if [[ -f "${kc_user_env_file}" ]] \
+            && printf '%s' "${kc_user_env_content}" | diff -q - "${kc_user_env_file}" &>/dev/null; then
+            log_info "User-Metrics Env-Datei bereits aktuell."
+        else
+            printf '%s' "${kc_user_env_content}" > "${kc_user_env_file}"
+            chmod 0600 "${kc_user_env_file}"
+            log_info "User-Metrics Env-Datei installiert: ${kc_user_env_file}"
+        fi
+
+        # Skript installieren
+        if [[ -f "${KC_USER_METRICS_DST}" ]] \
+            && diff -q "${KC_USER_METRICS_SRC}" "${KC_USER_METRICS_DST}" &>/dev/null; then
+            log_info "keycloak-user-metrics.sh bereits aktuell."
+        else
+            install -m 0755 "${KC_USER_METRICS_SRC}" "${KC_USER_METRICS_DST}"
+            log_info "keycloak-user-metrics.sh installiert: ${KC_USER_METRICS_DST}"
+        fi
+
+        # Cronjob anlegen (alle 5 Minuten – User-Bestand aendert sich langsam)
+        kc_user_cron_content="# Keycloak user count metrics for Prometheus textfile collector
+*/5 * * * * root ${KC_USER_METRICS_DST}
+"
+        if [[ -f "${KC_USER_CRON}" ]] \
+            && printf '%s' "${kc_user_cron_content}" | diff -q - "${KC_USER_CRON}" &>/dev/null; then
+            log_info "Keycloak-User-Cronjob bereits aktuell."
+        else
+            printf '%s' "${kc_user_cron_content}" > "${KC_USER_CRON}"
+            chmod 0644 "${KC_USER_CRON}"
+            log_info "Keycloak-User-Cronjob installiert: ${KC_USER_CRON}"
+        fi
+
+        # Einmal sofort ausführen
+        "${KC_USER_METRICS_DST}" || true
+        log_info "Keycloak-User-Metrics initial geschrieben."
         ;;
 esac
 

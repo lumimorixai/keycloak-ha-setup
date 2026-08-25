@@ -48,6 +48,17 @@ health-enabled=true
 metrics-enabled=true
 http-management-port=${KC_MGMT_PORT}
 
+# --- User-Event-Metriken -----------------------------------------------------
+# metrics-enabled allein liefert NUR JVM-, HTTP- und Datasource-Metriken.
+# Login-, Logout- und Registrierungs-Events erscheinen erst mit der folgenden
+# Option – als eine einzige Metrik:
+#   keycloak_user_events_total{realm="...", event="login", error="", client_id="...", idp="..."}
+# Die alten Namen keycloak_successful_login / keycloak_failed_login_attempts
+# stammen aus der Wildfly-Extension keycloak-metrics-spi und existieren in der
+# Quarkus-Distribution NICHT.
+event-metrics-user-enabled=true
+event-metrics-user-tags=realm,clientId,idp
+
 # --- Logging -----------------------------------------------------------------
 # Auf stdout (journald übernimmt via systemd): kein separates Logfile nötig.
 log=console

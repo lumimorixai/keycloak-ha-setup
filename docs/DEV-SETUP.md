@@ -84,7 +84,11 @@ sudo scripts/04-harden.sh lb
 
 ### Schritt 4: Monitoring (optional)
 
-Keycloak-Metriken sind bereits aktiviert (`metrics-enabled=true` in keycloak.conf).
+Keycloak-Metriken sind bereits aktiviert (`metrics-enabled=true` und
+`event-metrics-user-enabled=true` in keycloak.conf). Wurde Keycloak vor dieser
+Änderung installiert, zuerst auf app01 `sudo scripts/02-setup-keycloak.sh` erneut
+ausführen – das Skript erkennt die geänderte Config, führt `kc.sh build` aus und
+startet den Dienst neu (~30s Downtime).
 
 **Auf app01:**
 
@@ -113,6 +117,7 @@ app01:9000, app01:9100, app01:9187, localhost:9113, localhost:9100.
 **Zusätzlich installiert (automatisch via Exporter-Skripte):**
 - Fail2ban-Metriken (textfile collector, alle Rollen) – Cronjob alle 2 Minuten
 - Keycloak Cluster-Membership (textfile collector, keycloak-Rolle) – Cronjob jede Minute
+- Keycloak User-Bestand (textfile collector, keycloak-Rolle) – Cronjob alle 5 Minuten
 - Blackbox-Exporter auf lb01 (TLS-Zertifikatsprüfung via `06-setup-mon-vm.sh`)
 
 **Hinweis:** Der Alert `KCClusterMembershipBroken` feuert im DEV-Setup dauerhaft
