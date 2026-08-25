@@ -84,6 +84,35 @@ wenn via `event-metrics-user-tags=realm,clientId,idp` aktiviert.
 | Aktive Sessions (Indikator) | `sum(rate(keycloak_user_events_total{event="refresh_token"}[5m]))` |
 | Logins nach Client | `sum by (client_id) (rate(keycloak_user_events_total{event="login", error=""}[5m]))` |
 
+#### End-User-Logins von Admin-Logins trennen
+
+Anmeldungen an der Keycloak-Verwaltung sind ganz normale User-Events – sie unterscheiden
+sich nur ueber die Labels `realm` und `client_id`:
+
+| Vorgang | Labels |
+|---|---|
+| Admin-Console-Login | `realm="master"`, `client_id="security-admin-console"` |
+| End-User-Login in einer Anwendung | `realm="<dein-realm>"`, `client_id="<dein-client>"` |
+| Self-Service (Account-Console) | `client_id="account-console"` |
+
+| Frage | PromQL |
+|---|---|
+| Nur End-User-Logins (ohne Verwaltung) | `sum(rate(keycloak_user_events_total{event="login", error="", client_id!="security-admin-console"}[5m]))` |
+| Logins eines bestimmten Realms | `sum(rate(keycloak_user_events_total{event="login", error="", realm="kunden"}[5m]))` |
+| Alles ausser dem master-Realm | `sum by (realm) (rate(keycloak_user_events_total{event="login", error="", realm!="master"}[5m]))` |
+| Welche Anwendung wird genutzt? | `sum by (client_id) (rate(keycloak_user_events_total{event="login", error=""}[5m]))` |
+| User-Bestand ohne Admin-Accounts | `sum(keycloak_users_total{realm!="master"})` |
+
+Welche `realm`/`client_id`-Kombinationen bei dir tatsaechlich auflaufen, zeigt am
+schnellsten der Endpoint selbst:
+
+```bash
+curl -s localhost:9000/metrics | grep keycloak_user_events_total
+```
+
+Das Dashboard *Keycloak Overview* hat dafuer zwei Variablen: **Realm** (Mehrfachauswahl)
+und **Client-Filter** (Default `Nur End-User` – blendet `security-admin-console` aus).
+
 **Wie viele User gibt es insgesamt?** Keycloak liefert dafuer keine Metrik – weder Bestand
 noch Loeschungen. Dieses Setup ergaenzt sie via Textfile-Collector: `keycloak_users_total{realm="..."}`
 (siehe [User-Bestand und -Abgaenge tracken](#user-bestand-und--abgaenge-tracken)).
@@ -398,11 +427,17 @@ Dashboards werden automatisch via `06-setup-mon-vm.sh` provisioniert
 
 | Dashboard | Quelle | Inhalt |
 |---|---|---|
-| Keycloak Overview | Custom (`keycloak-overview.json`) | Login-Rate, Registrierungen, Fehler, Token-Latenz, Cluster-Nodes, Target-Health |
+| Keycloak Overview | Custom (`keycloak-overview.json`) | Login-Rate, Registrierungen, Fehler, Aufschluesselung nach Realm/Client, User-Bestand, Token-Latenz, Cluster-Nodes, Target-Health |
 | Keycloak JVM | Custom (`keycloak-jvm.json`) | Heap, GC-Pausen, Threads, CPU, HikariCP Connection Pool |
 | Node Exporter Full | Community (ID 1860) | CPU, RAM, Disk, Netzwerk pro VM |
 | PostgreSQL | Community (ID 9628) | Connections, Cache-Hit-Ratio, DML-Rate, Deadlocks |
 | Nginx | Community (ID 12708) | Request-Rate, Status-Code-Verteilung, Active Connections |
+
+*Keycloak Overview* hat drei Variablen: **instance** (KC-Node), **Realm** und
+**Client-Filter**. Der Client-Filter steht per Default auf `Nur End-User` und blendet
+`security-admin-console` aus – die Login-Panels zeigen damit ausschliesslich echte
+Anmeldungen von Anwendern, keine Logins an der Keycloak-Verwaltung. Umschalten auf
+`Alle Clients` zeigt beides.
 
 Community-Dashboards werden beim ersten Ausfuehren von `06-setup-mon-vm.sh` von
 `grafana.com` heruntergeladen. Die Custom-Dashboards liegen unter
