@@ -91,7 +91,13 @@ sudo scripts/04-harden.sh lb
 
 Ist `KC_ADMIN_DOMAIN` gesetzt, beantragt das Skript ein **zweites** Zertifikat
 für die Admin-Domain, legt `/etc/nginx/conf.d/keycloak-admin.conf` an und sperrt
-`/admin/` auf der Login-Domain mit 403. Beide DNS-Einträge müssen vorher auf
+auf der Login-Domain `/admin/` (403) sowie den Root `/` (404 – Keycloak würde
+ihn sonst auf die Admin-Console weiterleiten).
+
+Die Login-Maske selbst erscheint weiterhin unter `KC_DOMAIN`: Die Admin-Console
+ist ein OIDC-Client im Realm `master` und authentifiziert gegen die Frontend-URL,
+bevor sie per `redirect_uri` auf die Admin-Domain zurückkehrt. Der Token-Issuer
+bleibt dadurch unverändert. Beide DNS-Einträge müssen vorher auf
 lb01 zeigen. Zum Testen `CERTBOT_STAGING=1` setzen – Let's Encrypt erlaubt nur
 5 Produktiv-Zertifikate pro Domain und Woche:
 

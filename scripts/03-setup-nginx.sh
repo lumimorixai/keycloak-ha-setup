@@ -288,12 +288,25 @@ EOF
     fi
 
     # Sperre auf der Login-Domain NUR wenn das Admin-Zertifikat wirklich da ist.
+    #
+    # Zwei Locations:
+    #   /admin/  -> 403: Admin-Console und Admin-REST-API nur ueber die Admin-Domain
+    #   = /      -> 404: Keycloak leitet den Root auf die Admin-Console weiter
+    #                    (mit hostname-admin also auf die Admin-Domain). Wer die
+    #                    Login-Domain blank eintippt, soll nicht im Admin-Login
+    #                    landen. Exact-Match, damit /realms/... unberuehrt bleibt -
+    #                    der OIDC-Auth-Endpunkt MUSS hier erreichbar bleiben, er
+    #                    bedient auch die normalen Clients.
     if [[ -f "${admin_cert_path}" ]]; then
         NGINX_ADMIN_LOCATION="location ^~ /admin/ {
         return 403;
+    }
+
+    location = / {
+        return 404;
     }"
         export NGINX_ADMIN_LOCATION
-        log_info "Login-Domain: /admin/ wird mit 403 gesperrt."
+        log_info "Login-Domain: /admin/ = 403, / = 404."
     else
         log_warn "Kein Admin-Zertifikat – /admin/ bleibt auf ${KC_DOMAIN} erreichbar."
     fi

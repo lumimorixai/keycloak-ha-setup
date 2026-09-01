@@ -280,6 +280,34 @@ checks_lb() {
             check_fail "Admin-REST-API auf Login-Domain gesperrt" \
                 "HTTP ${code:-000} (erwartet: 403)"
         fi
+
+        # Root der Login-Domain darf nicht auf die Admin-Console weiterleiten.
+        code="$(http_get_code "https://${KC_DOMAIN}/")"
+        if [[ "${code}" == "404" ]]; then
+            check_ok "Root der Login-Domain ohne Admin-Redirect" "HTTP ${code}"
+        else
+            check_fail "Root der Login-Domain ohne Admin-Redirect" \
+                "HTTP ${code:-000} (erwartet: 404)"
+        fi
+
+        # Der OIDC-Auth-Endpunkt MUSS auf der Login-Domain erreichbar bleiben –
+        # ueber ihn laeuft der Login aller Clients inklusive der Admin-Console.
+        code="$(http_get_code "https://${KC_DOMAIN}/realms/master/protocol/openid-connect/auth?client_id=security-admin-console&response_type=code")"
+        if [[ "${code}" =~ ^(200|302|400)$ ]]; then
+            check_ok "OIDC-Auth-Endpunkt auf Login-Domain erreichbar" "HTTP ${code}"
+        else
+            check_fail "OIDC-Auth-Endpunkt auf Login-Domain erreichbar" \
+                "HTTP ${code:-000} (erwartet: 200/302/400, NICHT 403/404)"
+        fi
+
+        # Root der Admin-Domain fuehrt zur Console.
+        code="$(http_get_code "https://${KC_ADMIN_DOMAIN}/")"
+        if [[ "${code}" =~ ^(200|302|303)$ ]]; then
+            check_ok "Root der Admin-Domain führt zur Console" "HTTP ${code}"
+        else
+            check_warn "Root der Admin-Domain führt zur Console" \
+                "HTTP ${code:-000} (erwartet: 200/302)"
+        fi
     fi
 
     # --------------------------------------------------------------------------
