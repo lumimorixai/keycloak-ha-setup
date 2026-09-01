@@ -11,7 +11,7 @@ Internet
 lb01 (Nginx + Certbot)
   :443 TLS-Terminierung (ein Zertifikat je Domain)
   :80  ACME Challenge + /nginx_status (stub_status)
-       Login-Domain: /admin/ → 403, wenn Admin-Domain aktiv
+       Login-Domain: /admin/ → 403 und / → 404, wenn Admin-Domain aktiv
     │
     │ ip_hash Session-Stickiness
     ├──────────────────┐
@@ -112,6 +112,16 @@ Trennung macht Nginx: `location ^~ /admin/ { return 403; }` im Login-vHost.
 Die Sperre wird nur gerendert, wenn das Zertifikat der Admin-Domain existiert.
 Scheitert der Certbot-Lauf (falscher DNS-Eintrag, Rate-Limit), bleibt die
 Admin-Console über die Login-Domain erreichbar, statt dass man sich aussperrt.
+
+Zusätzlich liefert der Root `/` der Login-Domain 404: Keycloak leitet ihn sonst
+auf die Admin-Console weiter, mit `hostname-admin` also auf die Admin-Domain.
+
+Nicht gesperrt wird der OIDC-Auth-Endpunkt (`/realms/*/protocol/openid-connect/auth`).
+Die Admin-Console ist ein gewöhnlicher OIDC-Client (`security-admin-console`) im
+Realm `master` und authentifiziert – wie jeder andere Client – gegen die
+Frontend-URL. Der Login läuft deshalb sichtbar über `KC_DOMAIN` und kehrt per
+`redirect_uri` auf die Admin-Domain zurück. Das ist beabsichtigt: der Token-Issuer
+bleibt `KC_DOMAIN`, an den Clients ändert sich nichts.
 
 Konsequenz: Die Admin-REST-API (`/admin/realms/...`) ist auf der Login-Domain
 ebenfalls gesperrt. Automatisierung (`kcadm.sh`, Terraform) muss die Admin-Domain

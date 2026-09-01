@@ -101,10 +101,13 @@ server {
     # Bei 60s würde Nginx idle WS-Verbindungen trennen → UI-Fehler.
     proxy_read_timeout    3600s;
 
-    # Admin-Console und Admin-REST-API nur über die Admin-Domain erreichbar.
-    # Wird von 03-setup-nginx.sh nur dann als 403-Location gerendert, wenn
-    # KC_ADMIN_DOMAIN gesetzt ist UND deren Zertifikat existiert – sonst würde
-    # man sich bei fehlgeschlagenem Certbot-Lauf selbst aussperren.
+    # Von 03-setup-nginx.sh erzeugt, nur wenn KC_ADMIN_DOMAIN gesetzt ist UND
+    # deren Zertifikat existiert (sonst würde man sich bei fehlgeschlagenem
+    # Certbot-Lauf selbst aussperren). Enthält dann zwei Locations:
+    #   /admin/ → 403  – Admin-Console und Admin-REST-API nur über die Admin-Domain
+    #   = /     → 404  – der Root soll nicht zur Admin-Console weiterleiten
+    # Der OIDC-Auth-Endpunkt unter /realms/... bleibt bewusst offen: über ihn
+    # läuft der Login ALLER Clients, auch der der Admin-Console.
     ${NGINX_ADMIN_LOCATION}
 
     location / {
