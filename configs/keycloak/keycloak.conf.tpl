@@ -32,6 +32,17 @@ hostname=https://${KC_DOMAIN}
 hostname-strict=true
 proxy-headers=xforwarded
 
+# --- Admin-Console auf separater Domain (optional) ---------------------------
+# Die folgende Zeile wird von 02-setup-keycloak.sh erzeugt: gesetztes
+# KC_ADMIN_DOMAIN ergibt "hostname-admin=https://<domain>", ein leeres eine
+# Kommentarzeile. Grund: envsubst kann nicht verzweigen, und ein leeres
+# "hostname-admin=https://" wuerde Keycloak am Start hindern.
+#
+# ACHTUNG: hostname-admin aendert NUR die generierten Admin-URLs. Der Zugriff
+# ueber die Login-Domain bleibt offen - gesperrt wird er im Nginx (403 auf
+# /admin/, siehe configs/nginx/keycloak.conf.tpl).
+${KC_HOSTNAME_ADMIN}
+
 # --- Clustering (JDBC_PING2 für Node-Discovery via PostgreSQL) ---------------
 # JDBC_PING2 nutzt die PostgreSQL-DB NUR für Node-Discovery.
 # Der eigentliche Cluster-Datentransfer läuft über JGroups TCP (Port ${KC_JGROUPS_PORT}).

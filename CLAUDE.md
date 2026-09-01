@@ -72,7 +72,8 @@ keycloak-ha-setup/
 │   │       ├── keycloak-overview.json # Custom Keycloak Dashboard
 │   │       └── keycloak-jvm.json      # Custom JVM Dashboard
 │   ├── nginx/
-│   │   └── keycloak.conf.tpl   # Nginx vHost (Template)
+│   │   ├── keycloak.conf.tpl       # Nginx vHost Login-Domain (Template)
+│   │   └── keycloak-admin.conf.tpl # Nginx vHost Admin-Console (optional)
 │   └── postgresql/
 │       └── pg_hba.conf.tpl     # PostgreSQL-Zugriff (Template)
 └── docs/
@@ -153,6 +154,12 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 - **Es gibt nur EINE User-Event-Metrik:** `keycloak_user_events_total{realm,event,error,client_id,idp}`. Erfolg = `error=""`, Fehlversuch = `error!=""`. Namen wie `keycloak_successful_login`, `keycloak_failed_login_attempts`, `keycloak_registrations` stammen aus der Wildfly-Extension `keycloak-metrics-spi` und existieren in der Quarkus-Distro NICHT – Queries damit liefern stillschweigend leere Panels und Alerts, die nie feuern.
 - **Admin-Logins sind normale User-Events:** Anmeldungen an der Keycloak-Verwaltung erscheinen als `realm="master", client_id="security-admin-console"` in derselben Metrik wie End-User-Logins. Ohne Filter zählen Dashboards beides zusammen. `keycloak-overview.json` hat dafür die Variablen `$realm` und `$client_exclude` (Default: Admin-Console ausgeblendet).
 - **Userzahl ist keine Keycloak-Metrik:** Weder Bestand noch Löschungen werden exportiert. Der Bestand kommt aus `configs/monitoring/keycloak-user-metrics.sh` (SQL auf `user_entity`, Textfile-Collector, alle 5min) als `keycloak_users_total{realm="..."}`. Nach KC-Major-Upgrades Schema-Annahme prüfen.
+- **hostname-admin sperrt nichts:** `hostname-admin=https://${KC_ADMIN_DOMAIN}` ändert NUR die von Keycloak generierten Admin-URLs. Die Admin-Console und die Admin-REST-API bleiben über die Login-Domain erreichbar – die Sperre macht ausschließlich Nginx (`location ^~ /admin/ { return 403; }` im Login-vHost).
+- **403-Sperre nur mit vorhandenem Admin-Zertifikat:** `03-setup-nginx.sh` rendert den 403-Block erst, wenn `/etc/letsencrypt/live/${KC_ADMIN_DOMAIN}/fullchain.pem` existiert. Sonst würde ein fehlgeschlagener Certbot-Lauf (falscher DNS, Rate-Limit) den Admin-Zugang komplett aussperren.
+- **Zwei nginx-vHosts, ein upstream:** `keycloak-admin.conf.tpl` nutzt `upstream keycloak_backend` und den `map $http_upgrade`-Block aus `keycloak.conf.tpl` mit. Beide dort NICHT erneut definieren – `nginx -t` bricht mit "duplicate" ab. Deshalb wird der Login-vHost immer zuerst deployed.
+- **Platzhalternamen nie mit `${}` in Template-Kommentaren:** envsubst ersetzt sie auch dort. Bei mehrzeiligen Werten (403-Block, allow/deny-Liste) bricht der Wert aus dem Kommentar aus und erzeugt ungültige nginx-Syntax. In Doku-Headern nur den nackten Namen schreiben.
+- **Bedingte Zeilen in Templates:** envsubst kann nicht verzweigen. Muster im Repo: das Skript setzt eine Variable auf die komplette Zeile ODER auf eine Kommentarzeile und exportiert sie (`KC_HOSTNAME_ADMIN` in 02, `NGINX_ADMIN_LOCATION`/`NGINX_ADMIN_ALLOW` in 03, `PROM_BLACKBOX_ADMIN_TARGET` in 06). Nachträgliches Anhängen an die Zieldatei würde die diff-basierte Idempotenz von `deploy_config` zerstören.
+- **KC_ADMIN_DOMAIN und KC_ADMIN_ALLOW_IPS sind optional:** Beide stehen in `.env.example`, aber NICHT in `required_vars` – leeres `KC_ADMIN_DOMAIN` bedeutet Admin-Console unter `KC_DOMAIN` wie bisher, leeres `KC_ADMIN_ALLOW_IPS` bedeutet kein IP-Filter. Nie als Pflichtfeld hinzufügen.
 - **Nginx stub_status:** In der nginx-Config als `/nginx_status` Location (nur localhost). Wird vom nginx-prometheus-exporter gescraped.
 - **Alert-Rules statisch:** `configs/monitoring/alert-rules.yml` ist KEIN Template – enthält Go-Template-Syntax (`{{ $labels.instance }}`), die envsubst zerstören würde. Wird direkt kopiert, nicht via deploy_config.
 - **Grafana aus offiziellem Repo:** Das Debian-Paket existiert nicht. Keyring von `apt.grafana.com/gpg.key` einrichten.
@@ -189,6 +196,7 @@ Jedes Skript beginnt mit `source "$(dirname "$0")/00-common.sh"`. Verfügbare Fu
 Nach dem Erstellen jeder Datei:
 
 1. **Shell-Skripte:** `shellcheck --severity=warning scripts/*.sh`
-2. **Templates:** Prüfe, dass jede `${VARIABLE}` in `.env.example` definiert ist und umgekehrt. Grep-Pattern muss Ziffern einschließen: `grep -ohE '\$\{[A-Z0-9_]+\}'` (nicht `[A-Z_]+`, das übersieht z.B. `KC_NODE1_IP`)
+2. **Templates:** Prüfe, dass jede `${VARIABLE}` in `.env.example` definiert ist und umgekehrt. Grep-Pattern muss Ziffern einschließen: `grep -ohE '\$\{[A-Z0-9_]+\}'` (nicht `[A-Z_]+`, das übersieht z.B. `KC_NODE1_IP`).
+   Vier Platzhalter stammen bewusst NICHT aus `.env`, sondern werden von den Skripten erzeugt (siehe "Bedingte Zeilen in Templates") und dürfen bei dieser Prüfung fehlen: `KC_HOSTNAME_ADMIN`, `NGINX_ADMIN_LOCATION`, `NGINX_ADMIN_ALLOW`, `PROM_BLACKBOX_ADMIN_TARGET`.
 3. **systemd Unit:** `systemd-analyze verify` (falls lokal verfügbar)
 4. **Nginx Config:** `nginx -t` (nach envsubst auf einer Test-Config)

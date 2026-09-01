@@ -204,6 +204,19 @@ chmod 0755 "${KC_CONF_DIR}"
 
 log_info "--- Schritt 6/9: keycloak.conf deployen ---"
 
+# hostname-admin nur setzen wenn KC_ADMIN_DOMAIN befüllt ist. envsubst kann
+# nicht verzweigen, deshalb wird die komplette Zeile hier erzeugt und im
+# Template als ${KC_HOSTNAME_ADMIN} eingesetzt. Leere Variable = Kommentarzeile,
+# damit kein ungültiges "hostname-admin=https://" in der Config landet.
+if [[ -n "${KC_ADMIN_DOMAIN:-}" ]]; then
+    KC_HOSTNAME_ADMIN="hostname-admin=https://${KC_ADMIN_DOMAIN}"
+    log_info "Admin-Console-Domain: https://${KC_ADMIN_DOMAIN}"
+else
+    KC_HOSTNAME_ADMIN="# hostname-admin nicht gesetzt (KC_ADMIN_DOMAIN leer in .env)"
+    log_info "KC_ADMIN_DOMAIN leer – Admin-Console bleibt unter https://${KC_DOMAIN}."
+fi
+export KC_HOSTNAME_ADMIN
+
 # Vorab prüfen ob Inhalt sich ändern würde (für gezielten Build-Trigger)
 kc_conf_changed=0
 if [[ ! -f "${KC_CONF_DST}" ]] \

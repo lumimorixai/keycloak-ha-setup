@@ -5,10 +5,13 @@
 ```
 Internet
     │
+    │  KC_DOMAIN         → Login, Token-Endpoints, Account-Console
+    │  KC_ADMIN_DOMAIN   → Admin-Console + Admin-REST-API (optional)
     ▼
 lb01 (Nginx + Certbot)
-  :443 TLS-Terminierung
+  :443 TLS-Terminierung (ein Zertifikat je Domain)
   :80  ACME Challenge + /nginx_status (stub_status)
+       Login-Domain: /admin/ → 403, wenn Admin-Domain aktiv
     │
     │ ip_hash Session-Stickiness
     ├──────────────────┐
@@ -44,6 +47,10 @@ Keycloak          Keycloak
 ### lb01 – Load Balancer
 
 - **Nginx**: TLS-Terminierung, Reverse Proxy, ip_hash Session-Stickiness
+- **Zwei vHosts (optional)**: `keycloak.conf` (Login-Domain) und
+  `keycloak-admin.conf` (Admin-Console, nur wenn `KC_ADMIN_DOMAIN` gesetzt).
+  Der Admin-vHost nutzt `upstream keycloak_backend` und den `map`-Block aus
+  `keycloak.conf` mit – dort global definiert, hier nicht wiederholt.
 - **stub_status**: `/nginx_status` (nur localhost) für nginx-prometheus-exporter
 - **Certbot**: Let's Encrypt ACME-Client, Auto-Renewal via systemd-Timer
 - **nginx-prometheus-exporter**: Nginx-Metriken auf :9113 (installiert via `05-setup-monitoring.sh lb`)
@@ -75,7 +82,8 @@ Keycloak          Keycloak
 - **Prometheus**: Scraping + Speicherung + Alert-Rules auf :9090
 - **Grafana**: Dashboards auf :3000 (Prometheus als auto-provisionierte Datasource + Dashboards)
 - **Alertmanager**: Alert-Routing auf :9093 (E-Mail, Webhook, optional Zabbix)
-- **Blackbox-Exporter**: TLS-Zertifikatsprüfung auf :9115 (Probe gegen `KC_DOMAIN`)
+- **Blackbox-Exporter**: TLS-Zertifikatsprüfung auf :9115 (Probe gegen `KC_DOMAIN`
+  und, falls gesetzt, `KC_ADMIN_DOMAIN`)
 - **node_exporter**: System-Metriken auf :9100 (Self-Monitoring)
 - **UFW**: Erlaubt 3000/tcp (Grafana) für alle; 9090/9093 eingeschränkt auf ADMIN_IPS
 - **Fail2ban**: SSH-Schutz
@@ -93,6 +101,21 @@ Textfile-Collector bereitgestellt:
 Details zu KPIs, Dashboards und Alerting: [MONITORING.md](MONITORING.md)
 
 ## Design-Entscheidungen
+
+### Admin-Console auf separater Domain
+
+`hostname-admin` in `keycloak.conf` sorgt dafür, dass Keycloak seine Admin-URLs
+mit `KC_ADMIN_DOMAIN` generiert. Es sperrt jedoch **nichts** – laut Keycloak-Doku
+bleiben die Admin-Endpunkte über die Frontend-URL erreichbar. Die eigentliche
+Trennung macht Nginx: `location ^~ /admin/ { return 403; }` im Login-vHost.
+
+Die Sperre wird nur gerendert, wenn das Zertifikat der Admin-Domain existiert.
+Scheitert der Certbot-Lauf (falscher DNS-Eintrag, Rate-Limit), bleibt die
+Admin-Console über die Login-Domain erreichbar, statt dass man sich aussperrt.
+
+Konsequenz: Die Admin-REST-API (`/admin/realms/...`) ist auf der Login-Domain
+ebenfalls gesperrt. Automatisierung (`kcadm.sh`, Terraform) muss die Admin-Domain
+verwenden.
 
 ### JDBC_PING2 statt Multicast
 

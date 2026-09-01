@@ -54,6 +54,13 @@ Pflichtfelder ausfüllen:
 - `KC_DOMAIN`: Gewünschter FQDN
 - `ACME_EMAIL`: Gültige E-Mail
 
+Optional, für die Admin-Console auf eigener Domain:
+- `KC_ADMIN_DOMAIN`: z.B. `kc-admin-dev.swl-innovation.de` – **eigener DNS-Eintrag
+  auf lb01 nötig, bevor Schritt 3 läuft.** Leer lassen = Admin-Console bleibt
+  unter `KC_DOMAIN` erreichbar (Verhalten wie bisher).
+- `KC_ADMIN_ALLOW_IPS`: Komma-separierte IPs/CIDRs mit Zugriff auf die
+  Admin-Domain. Leer = offen für alle.
+
 ### Schritt 2: app01 einrichten
 
 ```bash
@@ -81,6 +88,23 @@ sudo scripts/04-harden.sh keycloak
 sudo scripts/03-setup-nginx.sh
 sudo scripts/04-harden.sh lb
 ```
+
+Ist `KC_ADMIN_DOMAIN` gesetzt, beantragt das Skript ein **zweites** Zertifikat
+für die Admin-Domain, legt `/etc/nginx/conf.d/keycloak-admin.conf` an und sperrt
+`/admin/` auf der Login-Domain mit 403. Beide DNS-Einträge müssen vorher auf
+lb01 zeigen. Zum Testen `CERTBOT_STAGING=1` setzen – Let's Encrypt erlaubt nur
+5 Produktiv-Zertifikate pro Domain und Woche:
+
+```bash
+sudo CERTBOT_STAGING=1 scripts/03-setup-nginx.sh
+```
+
+Danach auf app01 einmal `sudo scripts/02-setup-keycloak.sh` ausführen, damit
+Keycloak seine Admin-URLs mit der neuen Domain generiert (`hostname-admin`,
+erfordert `kc.sh build` + Neustart, ~30s Downtime).
+
+Abschalten: `KC_ADMIN_DOMAIN` leeren und beide Skripte erneut ausführen – der
+Admin-vHost wird entfernt (Backup bleibt), `/admin/` ist wieder offen.
 
 ### Schritt 4: Monitoring (optional)
 
@@ -151,6 +175,7 @@ Das ist im DEV-Setup korrekt – es läuft nur eine Instanz.
 |---|---|---|---|
 | User | lb01 | 443 | HTTPS (Keycloak UI/API) |
 | User | lb01 | 80 | HTTP (ACME Challenge only) |
+| User | lb01 | 443 | HTTPS (Admin-Console, nur bei KC_ADMIN_DOMAIN) |
 | lb01 | app01 | 8080 | Reverse Proxy → Keycloak |
 | lb01 | app01 | 9000 | Health-Check (Management) |
 | app01 | localhost | 5432 | PostgreSQL (lokal) |
