@@ -48,7 +48,7 @@ Zabbix, keine Zabbix-Agents auf den VMs. Siehe Abschnitt
 | Prometheus | 9090 | Scraping + Speicherung + Alerting-Rules |
 | Grafana | 3000 | Dashboards + Alert-Notifications |
 | Alertmanager | 9093 | Alert-Routing (E-Mail, Slack, Webhook) |
-| Blackbox-Exporter | 9115 | TLS-Zertifikatsprüfung (Probe gegen KC_DOMAIN) |
+| Blackbox-Exporter | 9115 | TLS-Zertifikatsprüfung (Probe gegen KC_DOMAIN und, falls gesetzt, KC_ADMIN_DOMAIN) |
 
 ---
 

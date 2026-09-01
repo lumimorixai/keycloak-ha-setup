@@ -5,6 +5,11 @@
 #
 # Variablen (aus .env):
 #   KC_DOMAIN, KC_NODE1_IP, KC_NODE2_IP, KC_MGMT_PORT, DB_HOST, LB_HOST
+#
+# PROM_BLACKBOX_ADMIN_TARGET wird von 06-setup-mon-vm.sh erzeugt (Name hier ohne
+# Dollar-Klammern, sonst ersetzt envsubst ihn auch im Kommentar): entweder die
+# Target-Zeile der Admin-Domain oder eine Kommentarzeile. Ein leeres
+# "https://" als Target wuerde den Alert TLSProbeFailure dauerhaft ausloesen.
 # ==============================================================================
 
 global:
@@ -66,6 +71,7 @@ scrape_configs:
     static_configs:
       - targets:
           - https://${KC_DOMAIN}
+${PROM_BLACKBOX_ADMIN_TARGET}
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

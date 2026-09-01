@@ -131,6 +131,48 @@ http_get_code() {
         -o /dev/null -w '%{http_code}' "${1}" 2>/dev/null
 }
 
+# TLS-Zertifikat einer Domain pruefen: Handshake + Restlaufzeit.
+# Nutzt openssl s_client statt der lokalen Zertifikatsdatei – funktioniert
+# von extern und ohne root-Rechte. Wird fuer Login- und Admin-Domain genutzt.
+check_tls_domain() {
+    local domain="$1"
+    local cert_text expiry_str expiry_epoch days_left
+
+    cert_text="$(echo Q \
+        | openssl s_client \
+            -connect "${domain}:443" \
+            -servername "${domain}" \
+            -verify_return_error \
+            2>/dev/null \
+        | openssl x509 -noout -enddate -subject 2>/dev/null || echo "")"
+
+    if [[ -z "${cert_text}" ]]; then
+        check_fail "TLS-Handshake ${domain}:443" "Verbindung fehlgeschlagen"
+        check_fail "TLS-Ablaufdatum ${domain}" "Kein Zertifikat abrufbar"
+        return
+    fi
+
+    check_ok "TLS-Handshake ${domain}:443" "Verbindung und Zertifikatkette OK"
+
+    expiry_str="$(printf '%s' "${cert_text}" | grep 'notAfter=' | cut -d= -f2 || echo "")"
+    if [[ -z "${expiry_str}" ]]; then
+        check_warn "TLS-Ablaufdatum ${domain}" "Ablaufdatum konnte nicht geparst werden"
+        return
+    fi
+
+    expiry_epoch="$(date -d "${expiry_str}" '+%s' 2>/dev/null || echo "0")"
+    days_left=$(( (expiry_epoch - $(date '+%s')) / 86400 ))
+
+    if [[ "${days_left}" -lt 0 ]]; then
+        check_fail "TLS-Ablaufdatum ${domain}" "ABGELAUFEN seit ${days_left#-} Tagen!"
+    elif [[ "${days_left}" -lt "${CERT_WARN_DAYS}" ]]; then
+        check_warn "TLS-Ablaufdatum ${domain}" \
+            "läuft in ${days_left} Tagen ab (< ${CERT_WARN_DAYS} Tage – Renewal prüfen!)"
+    else
+        check_ok "TLS-Ablaufdatum ${domain}" "gültig, läuft in ${days_left} Tagen ab"
+    fi
+}
+
 # TCP-Port-Erreichbarkeit testen
 tcp_check() {
     nc -z -w "${NC_TIMEOUT}" "${1}" "${2}" 2>/dev/null
@@ -205,41 +247,49 @@ checks_lb() {
     fi
 
     # --------------------------------------------------------------------------
+    # Admin-Console auf separater Domain (nur wenn KC_ADMIN_DOMAIN gesetzt).
+    # Geprüft wird beides: die Console ist auf der Admin-Domain erreichbar UND
+    # auf der Login-Domain gesperrt. Ohne den zweiten Check bliebe unbemerkt,
+    # wenn die 403-Location aus der nginx-Config verschwindet.
+    # --------------------------------------------------------------------------
+    if [[ -n "${KC_ADMIN_DOMAIN:-}" ]]; then
+        section "Admin-Console (${KC_ADMIN_DOMAIN})"
+
+        code="$(http_get_code "https://${KC_ADMIN_DOMAIN}/admin/master/console/")"
+        if [[ "${code}" == "200" ]] || [[ "${code}" == "302" ]]; then
+            check_ok "Admin-Console erreichbar" "HTTP ${code}"
+        elif [[ "${code}" == "403" ]]; then
+            check_fail "Admin-Console erreichbar" \
+                "HTTP 403 – KC_ADMIN_ALLOW_IPS schließt diesen Host aus?"
+        else
+            check_fail "Admin-Console erreichbar" "HTTP ${code:-000} (erwartet: 200/302)"
+        fi
+
+        code="$(http_get_code "https://${KC_DOMAIN}/admin/master/console/")"
+        if [[ "${code}" == "403" ]]; then
+            check_ok "Admin-Console auf Login-Domain gesperrt" "HTTP ${code}"
+        else
+            check_fail "Admin-Console auf Login-Domain gesperrt" \
+                "HTTP ${code:-000} (erwartet: 403)"
+        fi
+
+        code="$(http_get_code "https://${KC_DOMAIN}/admin/realms/master")"
+        if [[ "${code}" == "403" ]]; then
+            check_ok "Admin-REST-API auf Login-Domain gesperrt" "HTTP ${code}"
+        else
+            check_fail "Admin-REST-API auf Login-Domain gesperrt" \
+                "HTTP ${code:-000} (erwartet: 403)"
+        fi
+    fi
+
+    # --------------------------------------------------------------------------
     section "TLS-Zertifikat"
     # --------------------------------------------------------------------------
 
-    cert_text="$(echo Q \
-        | openssl s_client \
-            -connect "${KC_DOMAIN}:443" \
-            -servername "${KC_DOMAIN}" \
-            -verify_return_error \
-            2>/dev/null \
-        | openssl x509 -noout -enddate -subject 2>/dev/null || echo "")"
+    check_tls_domain "${KC_DOMAIN}"
 
-    if [[ -z "${cert_text}" ]]; then
-        check_fail "TLS-Handshake ${KC_DOMAIN}:443" "Verbindung fehlgeschlagen"
-        check_fail "TLS-Ablaufdatum ${KC_DOMAIN}" "Kein Zertifikat abrufbar"
-    else
-        check_ok "TLS-Handshake ${KC_DOMAIN}:443" "Verbindung und Zertifikatkette OK"
-
-        expiry_str="$(printf '%s' "${cert_text}" | grep 'notAfter=' | cut -d= -f2 || echo "")"
-        if [[ -n "${expiry_str}" ]]; then
-            expiry_epoch="$(date -d "${expiry_str}" '+%s' 2>/dev/null || echo "0")"
-            days_left=$(( (expiry_epoch - $(date '+%s')) / 86400 ))
-
-            if [[ "${days_left}" -lt 0 ]]; then
-                check_fail "TLS-Ablaufdatum ${KC_DOMAIN}" \
-                    "ABGELAUFEN seit ${days_left#-} Tagen!"
-            elif [[ "${days_left}" -lt "${CERT_WARN_DAYS}" ]]; then
-                check_warn "TLS-Ablaufdatum ${KC_DOMAIN}" \
-                    "läuft in ${days_left} Tagen ab (< ${CERT_WARN_DAYS} Tage – Renewal prüfen!)"
-            else
-                check_ok "TLS-Ablaufdatum ${KC_DOMAIN}" \
-                    "gültig, läuft in ${days_left} Tagen ab"
-            fi
-        else
-            check_warn "TLS-Ablaufdatum ${KC_DOMAIN}" "Ablaufdatum konnte nicht geparst werden"
-        fi
+    if [[ -n "${KC_ADMIN_DOMAIN:-}" ]]; then
+        check_tls_domain "${KC_ADMIN_DOMAIN}"
     fi
 }
 
@@ -570,6 +620,9 @@ printf '\n%s%s Keycloak HA Healthcheck (%s) %s\n' \
     "${C_BOLD}" "═══════════════════" "${vm_role}" "═══════════════════${C_RESET}"
 printf '  %s%-16s%s %s\n' "${C_DIM}" "Zeitpunkt:" "${C_RESET}" "$(date '+%Y-%m-%d %H:%M:%S')"
 printf '  %s%-16s%s %s\n' "${C_DIM}" "Domain:" "${C_RESET}" "${KC_DOMAIN}"
+if [[ -n "${KC_ADMIN_DOMAIN:-}" ]]; then
+    printf '  %s%-16s%s %s\n' "${C_DIM}" "Admin-Domain:" "${C_RESET}" "${KC_ADMIN_DOMAIN}"
+fi
 printf '  %s%-16s%s %s / %s\n\n' "${C_DIM}" "KC-Nodes:" "${C_RESET}" \
     "${KC_NODE1_IP}:${KC_HTTP_PORT}" "${KC_NODE2_IP}:${KC_HTTP_PORT}"
 

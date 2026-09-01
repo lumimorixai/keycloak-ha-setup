@@ -59,7 +59,7 @@ readonly -a COMMUNITY_DASHBOARDS=(
 readonly BLACKBOX_CONF_SRC="${REPO_DIR}/configs/monitoring/blackbox.yml"
 readonly BLACKBOX_CONF_DST="/etc/prometheus/blackbox.yml"
 
-readonly PROM_ENVSUBST_VARS='${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_MGMT_PORT} ${DB_HOST} ${LB_HOST}'
+readonly PROM_ENVSUBST_VARS='${KC_DOMAIN} ${KC_NODE1_IP} ${KC_NODE2_IP} ${KC_MGMT_PORT} ${DB_HOST} ${LB_HOST} ${PROM_BLACKBOX_ADMIN_TARGET}'
 # envsubst-Variablen für alertmanager.yml
 readonly AM_ENVSUBST_VARS='${ACME_EMAIL}'
 
@@ -184,6 +184,17 @@ ensure_package grafana
 # ==============================================================================
 
 log_info "--- Schritt 6/13: prometheus.yml deployen ---"
+
+# Blackbox-Target fuer die Admin-Domain nur setzen wenn KC_ADMIN_DOMAIN befuellt
+# ist – sonst landet "https://" als Target in der Config und TLSProbeFailure
+# feuert dauerhaft. Einrueckung passend zur YAML-Liste im Template.
+if [[ -n "${KC_ADMIN_DOMAIN:-}" ]]; then
+    PROM_BLACKBOX_ADMIN_TARGET="          - https://${KC_ADMIN_DOMAIN}"
+    log_info "Blackbox-Probe fuer Admin-Domain aktiv: https://${KC_ADMIN_DOMAIN}"
+else
+    PROM_BLACKBOX_ADMIN_TARGET="          # keine Admin-Domain konfiguriert (KC_ADMIN_DOMAIN leer)"
+fi
+export PROM_BLACKBOX_ADMIN_TARGET
 
 prom_changed=0
 if [[ ! -f "${PROM_CONF}" ]] \

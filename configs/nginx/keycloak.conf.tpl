@@ -8,6 +8,16 @@
 #   ${KC_NODE1_IP}  – Interne IP von kc01
 #   ${KC_NODE2_IP}  – Interne IP von kc02
 #   ${KC_HTTP_PORT} – Keycloak HTTP-Port (Standard: 8080)
+#   NGINX_ADMIN_LOCATION – von 03-setup-nginx.sh erzeugt (hier bewusst ohne
+#                          Dollar-Klammern notiert: envsubst würde den Namen
+#                          sonst auch im Kommentar ersetzen und der mehrzeilige
+#                          403-Block würde aus dem Kommentar ausbrechen).
+#                          Enthält die 403-Sperre für /admin/ wenn eine
+#                          Admin-Domain aktiv ist, sonst eine Kommentarzeile.
+#
+# Der map- und der upstream-Block unten sind global und werden vom zweiten vHost
+# (keycloak-admin.conf) mitbenutzt – dort NICHT erneut definieren, sonst
+# scheitert nginx -t mit "duplicate".
 # ==============================================================================
 
 # WebSocket-Upgrade-Mapping: leitet Upgrade-Requests korrekt weiter und
@@ -90,6 +100,12 @@ server {
     # 3600s: WebSocket-Verbindungen der Admin-Console sind lange idle.
     # Bei 60s würde Nginx idle WS-Verbindungen trennen → UI-Fehler.
     proxy_read_timeout    3600s;
+
+    # Admin-Console und Admin-REST-API nur über die Admin-Domain erreichbar.
+    # Wird von 03-setup-nginx.sh nur dann als 403-Location gerendert, wenn
+    # KC_ADMIN_DOMAIN gesetzt ist UND deren Zertifikat existiert – sonst würde
+    # man sich bei fehlgeschlagenem Certbot-Lauf selbst aussperren.
+    ${NGINX_ADMIN_LOCATION}
 
     location / {
         proxy_pass http://keycloak_backend;
